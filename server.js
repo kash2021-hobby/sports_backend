@@ -5,146 +5,117 @@ const bcrypt = require('bcrypt');
 const multer = require('multer');
 const { v4: uuidv4 } = require('uuid');
 const { google } = require('googleapis');
+const mysql = require('mysql2/promise');
 const fs = require('fs');
 require('dotenv').config();
 
 const app = express();
 const PORT = process.env.PORT || 3000;
-const JWT_SECRET = process.env.JWT_SECRET || 'dhsa_ultra_secure_2026';
+const JWT_SECRET = process.env.JWT_SECRET || 'dhsa_secure_2026';
+
+// --- MYSQL CONNECTION POOL ---
+const pool = mysql.createPool(process.env.DATABASE_URL);
 
 // --- GOOGLE DRIVE CONFIG ---
-const SCOPES = ['https://www.googleapis.com/auth/drive.file'];
-const auth = new google.auth.JWT(
-    process.env.GOOGLE_CLIENT_EMAIL,
-    null,
-    process.env.GOOGLE_PRIVATE_KEY ? process.env.GOOGLE_PRIVATE_KEY.replace(/\\n/g, '\n') : null,
-    SCOPES
-);
-const drive = google.drive({ version: 'v3', auth });
+const drive = google.drive({
+    version: 'v3',
+    auth: new google.auth.JWT(
+        process.env.GOOGLE_CLIENT_EMAIL,
+        null,
+        process.env.GOOGLE_PRIVATE_KEY ? process.env.GOOGLE_PRIVATE_KEY.replace(/\\n/g, '\n') : null,
+        ['https://www.googleapis.com/auth/drive.file']
+    ),
+});
 
-// --- IN-MEMORY DATABASE ---
-const db = {
-    users: new Map(),
-    applications: new Map(),
-    players: new Map(),
-    coaches: new Map(),
-    trials: new Map(),
-    documents: new Map(),
-    lockouts: new Map()
+// --- SERIALIZERS (The Security Layer) ---
+// This ensures sensitive database columns (like mpin) are NEVER sent to the user.
+const serializers = {
+    user: (u) => {
+        if (!u) return null;
+        return {
+            id: u.id,
+            phone: u.phone,
+            fullName: u.fullName,
+            role: u.role
+        };
+    },
+    application: (a) => {
+        if (!a) return null;
+        return {
+            id: a.id,
+            userId: a.userId,
+            // Parse JSON if it's stored as a string in MySQL
+            formData: typeof a.formData === 'string' ? JSON.parse(a.formData) : a.formData,
+            status: a.status
+        };
+    }
 };
 
 // --- MIDDLEWARE ---
 app.use(cors());
 app.use(express.json());
-const upload = multer({ dest: 'uploads/' }); // Temporary local storage before Drive upload
+const upload = multer({ dest: 'uploads/' });
 
-// --- SERIALIZERS ---
-const serializers = {
-    user: (u) => ({ id: u.id, phone: u.phone, fullName: u.fullName, role: u.role }),
-    application: (a) => ({ id: a.id, status: a.status, data: a.formData, risk: a.riskLevel }),
-    player: (p) => ({ id: p.id, identity: p.footballIdentity, status: p.status, photoUrl: p.photoUrl }),
-    coach: (c) => ({ id: c.id, specialization: c.specialization, active: c.isActive })
-};
-
-// --- AUTH MODULE ---
-app.post('/api/auth/request-otp', (req, res) => {
-    res.json({ message: "OTP sent (52050)", otp: "52050" });
-});
+// --- AUTH MODULE (With Serialization) ---
 
 app.post('/api/auth/verify-otp', async (req, res) => {
     const { phone, otp, mpin, fullName } = req.body;
     if (otp !== "52050") return res.status(400).json({ error: "Invalid OTP" });
 
-    const hashedMpin = await bcrypt.hash(mpin, 10);
-    const user = { id: uuidv4(), phone, fullName, mpin: hashedMpin, role: 'USER' };
-    db.users.set(phone, user);
+    try {
+        const hashedMpin = await bcrypt.hash(mpin, 10);
+        const userId = uuidv4();
+        
+        await pool.execute(
+            'INSERT INTO users (id, phone, fullName, mpin, role) VALUES (?, ?, ?, ?, ?)',
+            [userId, phone, fullName, hashedMpin, 'USER']
+        );
 
-    const token = jwt.sign({ id: user.id, role: user.role }, JWT_SECRET);
-    res.json({ token, user: serializers.user(user) });
+        const newUser = { id: userId, phone, fullName, role: 'USER' };
+        const token = jwt.sign({ id: userId, role: 'USER' }, JWT_SECRET);
+
+        res.json({ 
+            token, 
+            user: serializers.user(newUser) // Used Serializer here
+        });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
 });
 
 app.post('/api/auth/login-mpin', async (req, res) => {
     const { phone, mpin } = req.body;
-    const user = db.users.get(phone);
-    if (!user || !(await bcrypt.compare(mpin, user.mpin))) {
-        return res.status(401).json({ error: "Invalid MPIN" });
-    }
-    const token = jwt.sign({ id: user.id, role: user.role }, JWT_SECRET);
-    res.json({ token, user: serializers.user(user) });
-});
-
-// --- GOOGLE DRIVE DOCUMENT UPLOAD ---
-app.post('/api/documents/upload', upload.single('file'), async (req, res) => {
     try {
-        if (!req.file) return res.status(400).json({ error: "No file provided" });
+        const [rows] = await pool.execute('SELECT * FROM users WHERE phone = ?', [phone]);
+        const user = rows[0];
 
-        // 1. Upload to Google Drive
-        const fileMetadata = {
-            name: `DHSA_${Date.now()}_${req.file.originalname}`,
-            parents: [process.env.GOOGLE_DRIVE_FOLDER_ID] 
-        };
-        const media = {
-            mimeType: req.file.mimetype,
-            body: fs.createReadStream(req.file.path)
-        };
+        if (!user || !(await bcrypt.compare(mpin, user.mpin))) {
+            return res.status(401).json({ error: "Invalid MPIN" });
+        }
 
-        const driveResponse = await drive.files.create({
-            requestBody: fileMetadata,
-            media: media,
-            fields: 'id, webViewLink'
+        const token = jwt.sign({ id: user.id, role: user.role }, JWT_SECRET);
+        
+        res.json({ 
+            token, 
+            user: serializers.user(user) // Used Serializer here to hide mpin
         });
-
-        // 2. Set Public Permissions so frontend can fetch/view
-        await drive.permissions.create({
-            fileId: driveResponse.data.id,
-            requestBody: { role: 'reader', type: 'anyone' }
-        });
-
-        // 3. Clean up local file
-        fs.unlinkSync(req.file.path);
-
-        const docData = { 
-            id: driveResponse.data.id, 
-            url: driveResponse.data.webViewLink, 
-            status: 'VERIFIED' 
-        };
-        db.documents.set(docData.id, docData);
-
-        res.json({ message: "Uploaded to Google Drive", file: docData });
     } catch (error) {
-        console.error("Drive Error:", error);
-        res.status(500).json({ error: "Google Drive Upload Failed" });
+        res.status(500).json({ error: "Database error" });
     }
 });
 
-// --- PLAYER & APPLICATION MODULE ---
-app.post('/api/applications', (req, res) => {
-    const { userId, formData, isDraft } = req.body;
-    const appId = uuidv4();
-    const appData = { id: appId, userId, formData, status: isDraft ? 'DRAFT' : 'PENDING', createdAt: new Date() };
-    db.applications.set(appId, appData);
-    res.json(serializers.application(appData));
-});
+// --- APPLICATION MODULE (With Serialization) ---
 
-app.post('/api/admin/approve/:appId', (req, res) => {
-    const appData = db.applications.get(req.params.appId);
-    if (!appData) return res.status(404).json({ error: "Application not found" });
+app.get('/api/applications/:id', async (req, res) => {
+    try {
+        const [rows] = await pool.execute('SELECT * FROM applications WHERE id = ?', [req.params.id]);
+        if (rows.length === 0) return res.status(404).json({ error: "Not found" });
 
-    appData.status = 'VERIFIED';
-    const player = {
-        id: uuidv4(),
-        userId: appData.userId,
-        footballIdentity: appData.formData.name,
-        photoUrl: appData.formData.photoUrl || null, // URL from Google Drive
-        status: 'ELIGIBLE'
-    };
-    db.players.set(player.id, player);
-    res.json({ message: "Player Created", player: serializers.player(player) });
+        res.json(serializers.application(rows[0])); // Used Serializer to format JSON
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
 });
 
 // --- SERVER START ---
-app.get('/health', (req, res) => res.json({ status: "DHSA Operational", driveConnected: !!process.env.GOOGLE_CLIENT_EMAIL }));
-
-app.listen(PORT, () => {
-    console.log(`🚀 DHSA Backend Live on Port ${PORT}`);
-});
+app.listen(PORT, () => console.log(`🚀 DHSA Backend + MySQL + Serializers Live on ${PORT}`));
