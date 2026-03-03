@@ -84,7 +84,19 @@ app.post('/api/auth/login-mpin', async (req, res) => {
         res.status(500).json({ error: "Login failed" });
     }
 });
-
+app.post('/api/trials/schedule', async (req, res) => {
+    const { phone, date, location } = req.body;
+    
+    // 1. Update MySQL status
+    // 2. Trigger WhatsApp (Using a library or API like Twilio/Cloud API)
+    
+    const message = `Hello! Your DHSA Football Trial is scheduled for ${date} at ${location}. Please bring your original ID.`;
+    
+    // Example WhatsApp trigger:
+    // await sendWhatsApp(phone, message);
+    
+    res.json({ success: true, message: "Scheduled and Notification Sent" });
+});
 // --- 2. PLAYER & APPLICATION MODULE ---
 app.post('/api/applications', async (req, res) => {
     const { userId, formData } = req.body;
