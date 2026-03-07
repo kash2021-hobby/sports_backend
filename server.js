@@ -510,14 +510,18 @@ app.post("/trial/evaluate", upload.single("trial_photo"), async (req, res) => {
     medical_notes
   } = req.body;
 
-  try {
+ try {
 
-    const trial = await Trial.findOne({
+    let trial = await Trial.findOne({
       where: { PlayerId: player_id }
     });
 
+    // 🌟 THE FIX: Create the trial if it doesn't exist yet!
     if (!trial) {
-      return res.status(404).json({ error: "Trial not found" });
+      trial = await Trial.create({
+        PlayerId: player_id,
+        trial_date: new Date(), // Sets the date to right now
+      });
     }
 
     /* Upload live trial photo */
