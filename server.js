@@ -12,17 +12,7 @@ const multer = require("multer");
 const stream = require("stream");
 
 const app = express();
-app.use(cors({
-    origin: [
-        'https://version2.dhsa.co.in', // Your live frontend
-        'http://localhost:3000',       // Local React testing
-        'http://localhost:5173'        // Local Vite testing
-    ],
-    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization'],
-    credentials: true,
-    optionsSuccessStatus: 200 // Some legacy browsers choke on 204
-}));
+app.use(cors());
 app.use(express.json());
 
 /* ===============================
@@ -1514,24 +1504,24 @@ app.post(
     }
   }
 );
+/* ===============================
+   GET PLAYER PROFILE (WITH CLUB NAME)
+================================ */
 app.get("/players/profile/:id", async (req, res) => {
-
   try {
-
-    const player = await Player.findByPk(req.params.id);
+    // 🌟 THE FIX: We added "include" to fetch the linked Club Name!
+    const player = await Player.findByPk(req.params.id, {
+        include: [{ model: Club, attributes: ['name'] }]
+    });
 
     if (!player) {
       return res.status(404).json({ error: "Player not found" });
     }
 
     res.json(player);
-
   } catch (error) {
-
     res.status(500).json({ error: error.message });
-
   }
-
 });
 /* ===============================
    CLUB ROUTES
@@ -2559,6 +2549,144 @@ app.delete("/admin/users/:id", async (req, res) => {
     }
 });
 /* ===============================
+   PLAYER: GET PERSONAL STATS
+================================ */
+app.get("/players/:id/stats", async (req, res) => {
+  try {
+    const playerId = parseInt(req.params.id);
+    
+    // 1. Figure out how many matches their team has played overall
+    const player = await Player.findByPk(playerId);
+    let teamMatchesCount = 0;
+
+    if (player && player.club_applied) {
+        const team = await Team.findOne({ where: { club_id: player.club_applied } });
+        if (team) {
+            teamMatchesCount = await Match.count({
+                where: {
+                    status: 'Completed',
+                    [Sequelize.Op.or]: [{ team1_id: team.id }, { team2_id: team.id }]
+                }
+            });
+        }
+    }
+
+    // 2. Fetch all completed matches that actually have events
+    const matches = await Match.findAll({
+        where: {
+            status: 'Completed',
+            match_events: { [Sequelize.Op.not]: null }
+        },
+        include: [
+            { model: Team, as: 'Team1', attributes: ['name'] },
+            { model: Team, as: 'Team2', attributes: ['name'] }
+        ]
+    });
+
+    let goals = 0;
+    let yellowCards = 0;
+    let redCards = 0;
+    let playerEvents = [];
+
+    // 3. Scan the JSON timeline of every match
+    matches.forEach(match => {
+        if (match.match_events) {
+            try {
+                // Parse the JSON string back into an array
+                const events = typeof match.match_events === 'string' ? JSON.parse(match.match_events) : match.match_events;
+                
+                events.forEach(ev => {
+                    // If the event belongs to THIS player, count it!
+                    if (parseInt(ev.playerId) === playerId) {
+                        if (ev.type === 'Goal') goals++;
+                        if (ev.type === 'Yellow Card') yellowCards++;
+                        if (ev.type === 'Red Card') redCards++;
+                        
+                        // 🌟 THE FIX: If match_date is missing, fallback to the date it was completed in the DB!
+                        const displayDate = match.match_date ? match.match_date : new Date(match.updatedAt).toLocaleDateString();
+
+                        // Save the event details to show on their timeline
+                        playerEvents.push({
+                            id: ev.id || Math.random(),
+                            match_name: `${match.Team1?.name || 'TBD'} vs ${match.Team2?.name || 'TBD'}`,
+                            minute: ev.minute,
+                            type: ev.type,
+                            date: displayDate
+                        });
+                    }
+                });
+            } catch (e) {
+                console.error("Failed to parse match events", e);
+            }
+        }
+    });
+
+    // Sort events so the newest ones are at the top
+    playerEvents = playerEvents.reverse();
+
+    res.json({
+        goals,
+        yellowCards,
+        redCards,
+        matchesPlayed: teamMatchesCount, 
+        recentEvents: playerEvents
+    });
+
+  } catch (error) {
+    console.error("STATS ERROR:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
+/* ===============================
+   PLAYER: GET UPCOMING MATCHES
+================================ */
+app.get("/players/:id/matches", async (req, res) => {
+  try {
+    const playerId = parseInt(req.params.id);
+    const player = await Player.findByPk(playerId);
+
+    if (!player || !player.club_applied) {
+        return res.json([]);
+    }
+
+    const team = await Team.findOne({ where: { club_id: player.club_applied } });
+    if (!team) {
+        return res.json([]);
+    }
+
+    const matches = await Match.findAll({
+        where: {
+            [Sequelize.Op.or]: [{ team1_id: team.id }, { team2_id: team.id }],
+            status: { [Sequelize.Op.ne]: 'Completed' } // Only fetch matches that aren't finished
+        },
+        include: [
+            { model: Team, as: 'Team1', attributes: ['name'] },
+            { model: Team, as: 'Team2', attributes: ['name'] },
+            { model: Tournament, attributes: ['name'] } // Attach the tournament name
+        ],
+        order: [['match_date', 'ASC'], ['match_number', 'ASC']]
+    });
+
+    res.json(matches.map(m => ({
+        id: m.id,
+        tournament_name: m.Tournament ? m.Tournament.name : 'Unknown Tournament',
+        round_name: m.round_name,
+        match_number: m.match_number,
+        team1_name: m.Team1 ? m.Team1.name : (m.team1_placeholder || "TBD"),
+        team2_name: m.Team2 ? m.Team2.name : (m.team2_placeholder || "TBD"),
+        team1_id: m.team1_id,
+        team2_id: m.team2_id,
+        match_date: m.match_date,
+        match_time: m.match_time,
+        venue: m.venue,
+        status: m.status
+    })));
+  } catch (error) {
+    console.error("PLAYER MATCHES ERROR:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
+/* ===============================
    START SERVER
 ================================ */
 async function createFolder() {
@@ -2577,14 +2705,11 @@ async function createFolder() {
   }
 }
 
-sequelize.sync({alter:true}).then(() => {
+sequelize.sync({}).then(() => {
   // create drive folder
 
- const PORT = process.env.PORT || 5000;
-  
-  // '0.0.0.0' is required by some cloud hosts to expose the server to the internet
-  app.listen(PORT, '0.0.0.0', () => {
-    console.log(`🚀 Server successfully running on port ${PORT}`);
+  app.listen(5000, () => {
+    console.log("Server running on port 5000");
   });
 
 });
