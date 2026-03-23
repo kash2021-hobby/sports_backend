@@ -84,7 +84,6 @@ const sequelize = new Sequelize(
   {
     host: process.env.DB_HOST,
     dialect: "mysql",
-    port: process.env.DB_PORT || 3306
   }
 );
 
@@ -131,7 +130,9 @@ const Player = sequelize.define("Player", {
   status: DataTypes.STRING,
 
   player_photo_url: DataTypes.STRING,
-  gov_id_url: DataTypes.STRING,
+  gov_doc_1_url: DataTypes.STRING,
+  gov_doc_2_url: DataTypes.STRING,
+  gov_doc_3_url: DataTypes.STRING,
   fitness_certificate_url: DataTypes.STRING
 
 });
@@ -188,6 +189,186 @@ const TrialAnswer = sequelize.define("TrialAnswer",{
  question_id: DataTypes.INTEGER,
  answer: DataTypes.STRING
 });
+
+const Team = sequelize.define("Team", {
+  name: DataTypes.STRING,
+  jersey_color: DataTypes.STRING,
+  status: {
+    type: DataTypes.STRING,
+    defaultValue: "Pending Approval" // Requires Admin Approval
+  }
+});
+
+const TeamPlayer = sequelize.define("TeamPlayer", {
+  jersey_number: DataTypes.INTEGER,
+  assigned_position: DataTypes.STRING
+});
+const Tournament = sequelize.define("Tournament", {
+  name: DataTypes.STRING,
+  description: DataTypes.TEXT,
+  banner_url: DataTypes.STRING,
+  
+  format: DataTypes.STRING, // Knockout, League, Group Stages + Knockout
+  
+  registration_deadline: DataTypes.DATE,
+  start_date: DataTypes.DATE,
+  end_date: DataTypes.DATE,
+  
+  venue: DataTypes.STRING,
+  city: DataTypes.STRING,
+  
+  age_category: DataTypes.STRING,
+  gender: DataTypes.STRING,
+  
+  max_teams: DataTypes.INTEGER,
+  entry_fee: DataTypes.INTEGER,
+  prize_pool: DataTypes.STRING,
+  registration_mode: DataTypes.JSON, // Stores array like ["Online", "Offline"]
+  qr_code_url: DataTypes.STRING, // Stores Google Drive link for QR code
+  upi_id: DataTypes.STRING,
+  
+  status: {
+    type: DataTypes.STRING,
+    defaultValue: "Registration Open" 
+  }
+});
+const TournamentRegistration = sequelize.define("TournamentRegistration", {
+  status: {
+    type: DataTypes.STRING,
+    defaultValue: "Pending Verification" // Admin must approve
+  },
+  payment_receipt_url: DataTypes.STRING,
+  roster_data: DataTypes.JSON // Will store { starters: [...], subs: [...] }
+});
+
+/* ===============================
+   UPDATED MATCH MODEL
+================================ */
+const Match = sequelize.define("Match", {
+  match_type: DataTypes.STRING, // 🌟 NEW: 'Group', 'League', or 'Knockout'
+  group_name: DataTypes.STRING, // 🌟 NEW: e.g., 'A' (Only used if match_type is 'Group')
+  
+  round_name: DataTypes.STRING, 
+  round_number: DataTypes.INTEGER, 
+  match_number: DataTypes.INTEGER, 
+  
+  team1_id: DataTypes.INTEGER, 
+  team2_id: DataTypes.INTEGER, 
+  // Add these two lines to save the "Winner Match X" text!
+  team1_placeholder: DataTypes.STRING,
+  team2_placeholder: DataTypes.STRING,
+  
+  team1_score: { type: DataTypes.INTEGER, defaultValue: 0 },
+  team2_score: { type: DataTypes.INTEGER, defaultValue: 0 },
+  
+  winner_id: DataTypes.INTEGER, 
+  is_draw: { type: DataTypes.BOOLEAN, defaultValue: false }, // 🌟 NEW: Crucial for Leagues
+  
+  next_match_id: DataTypes.INTEGER, 
+
+  match_date: DataTypes.STRING,
+  match_time: DataTypes.STRING,
+  venue: DataTypes.STRING,
+
+  referee_id: DataTypes.INTEGER, 
+  team1_jersey: DataTypes.STRING, 
+  team2_jersey: DataTypes.STRING, 
+  is_live: { type: DataTypes.BOOLEAN, defaultValue: false }, 
+  
+  // 🌟 NEW: Stores the entire JSON timeline of goals, cards, and substitutions!
+  match_events: { 
+    type: DataTypes.TEXT, 
+    allowNull: true 
+  },
+  
+  status: {
+    type: DataTypes.STRING,
+    defaultValue: "Pending Setup" 
+  }
+});
+/* ===============================
+   NEW TABLE: STANDINGS
+================================ */
+const Standings = sequelize.define("Standings", {
+  group_name: DataTypes.STRING, // e.g., 'A', 'B' (Null for a pure League)
+  
+  matches_played: { type: DataTypes.INTEGER, defaultValue: 0 },
+  wins: { type: DataTypes.INTEGER, defaultValue: 0 },
+  draws: { type: DataTypes.INTEGER, defaultValue: 0 },
+  losses: { type: DataTypes.INTEGER, defaultValue: 0 },
+  
+  goals_for: { type: DataTypes.INTEGER, defaultValue: 0 },
+  goals_against: { type: DataTypes.INTEGER, defaultValue: 0 },
+  goal_difference: { type: DataTypes.INTEGER, defaultValue: 0 },
+  
+  points: { type: DataTypes.INTEGER, defaultValue: 0 }
+});
+/* ===============================
+   REFEREE MODEL
+================================ */
+const Referee = sequelize.define("Referee", {
+  full_name: DataTypes.STRING,
+  phone: DataTypes.STRING,
+  email: DataTypes.STRING,
+  mpin: DataTypes.STRING, // Kept for secure login
+  
+  date_of_birth: DataTypes.DATEONLY,
+  gender: DataTypes.STRING,
+  
+  city: DataTypes.STRING,
+  address: DataTypes.TEXT,
+  
+  photo_url: DataTypes.STRING,
+  
+  status: {
+    type: DataTypes.STRING,
+    defaultValue: "Active" // Active / Inactive
+  }
+});
+
+// Link Referee to Matches
+Referee.hasMany(Match, { foreignKey: 'referee_id' });
+Match.belongsTo(Referee, { foreignKey: 'referee_id', as: 'MatchReferee' });
+
+// Relationships
+Tournament.hasMany(Standings);
+Standings.belongsTo(Tournament);
+
+Team.hasMany(Standings);
+Standings.belongsTo(Team);
+
+/* ===============================
+   ADD TO TOURNAMENT REGISTRATION
+================================ */
+// Add this field to your existing TournamentRegistration model
+// coach_accepted_fixture: { type: DataTypes.BOOLEAN, defaultValue: false }
+
+// Relationships for Matches
+Tournament.hasMany(Match);
+Match.belongsTo(Tournament);
+
+// We must use 'as' aliases because Team connects to Match twice!
+Team.hasMany(Match, { foreignKey: 'team1_id', as: 'MatchesAsTeam1' });
+Team.hasMany(Match, { foreignKey: 'team2_id', as: 'MatchesAsTeam2' });
+Team.hasMany(Match, { foreignKey: 'winner_id', as: 'MatchesWon' });
+
+Match.belongsTo(Team, { foreignKey: 'team1_id', as: 'Team1' });
+Match.belongsTo(Team, { foreignKey: 'team2_id', as: 'Team2' });
+Match.belongsTo(Team, { foreignKey: 'winner_id', as: 'Winner' });
+
+// Assuming you have a User model for Admins/Referees
+// User.hasMany(Match, { foreignKey: 'referee_id' });
+
+// Relationships
+Tournament.hasMany(TournamentRegistration, { foreignKey: 'tournament_id' });
+TournamentRegistration.belongsTo(Tournament, { foreignKey: 'tournament_id' });
+
+Team.hasMany(TournamentRegistration, { foreignKey: 'team_id' });
+TournamentRegistration.belongsTo(Team, { foreignKey: 'team_id' });
+
+// Relationships: A Tournament can have many Teams, and a Team can join many Tournaments
+Tournament.belongsToMany(Team, { through: 'TournamentTeams' });
+Team.belongsToMany(Tournament, { through: 'TournamentTeams' });
 /* ===============================
    RELATIONSHIPS
 ================================ */
@@ -203,6 +384,13 @@ Trial.belongsTo(Player);
 
 Club.hasMany(Trial);
 Trial.belongsTo(Club);
+// A Club has one Permanent Team
+Club.hasOne(Team, { foreignKey: "club_id" });
+Team.belongsTo(Club, { foreignKey: "club_id" });
+
+// Many-to-Many Relationship between Team and Player
+Team.belongsToMany(Player, { through: TeamPlayer, foreignKey: "team_id" });
+Player.belongsToMany(Team, { through: TeamPlayer, foreignKey: "player_id" });
 
 /* ===============================
    SERIALIZERS
@@ -215,7 +403,26 @@ function PlayerSerializer(player) {
     position: player.position,
     club: player.club_applied,
     status: player.status,
+    
+    // 🌟 Basic Stats (Great for Manager UI)
+    age: player.age,
+    height: player.height,
+    weight: player.weight,
+    strong_foot: player.strong_foot,
+    experience_years: player.experience_years,
+    
+    // 🌟 Contact Info
+    phone: player.phone,
+    email: player.email,
+
+    // 🌟 Document URLs (Critical for Admin Verification)
     photo_url: player.player_photo_url,
+    gov_doc_1_url: player.gov_doc_1_url,
+    gov_doc_2_url: player.gov_doc_2_url,
+    gov_doc_3_url: player.gov_doc_3_url,
+    fitness_certificate_url: player.fitness_certificate_url,
+
+    // Badge Logic
     badge:
       player.status === "Registered"
         ? "Approved Player"
@@ -247,6 +454,154 @@ function TrialSerializer(trial) {
   };
 }
 
+function TeamSerializer(team) {
+  return {
+    id: team.id,
+    name: team.name,
+    jersey_color: team.jersey_color,
+    status: team.status,
+    club_id: team.club_id,
+    // Map through the associated players and extract the junction table data
+    players: team.Players ? team.Players.map(p => ({
+      id: p.id,
+      full_name: p.full_name,
+      player_photo_url: p.player_photo_url,
+      // Access the data from the TeamPlayer junction table
+      jersey_number: p.TeamPlayer.jersey_number,
+      assigned_position: p.TeamPlayer.assigned_position
+    })) : []
+  };
+}
+function TournamentSerializer(tournament) {
+  return {
+    id: tournament.id,
+    name: tournament.name,
+    description: tournament.description,
+    banner_url: tournament.banner_url,
+    format: tournament.format,
+    registration_deadline: tournament.registration_deadline,
+    start_date: tournament.start_date,
+    end_date: tournament.end_date,
+    venue: tournament.venue,
+    city: tournament.city,
+    age_category: tournament.age_category,
+    gender: tournament.gender,
+    max_teams: tournament.max_teams,
+    entry_fee: tournament.entry_fee,
+    prize_pool: tournament.prize_pool,
+    status: tournament.status,
+    registration_mode: tournament.registration_mode || [],
+    qr_code_url: tournament.qr_code_url,
+    upi_id: tournament.upi_id,
+    registered_teams_count: tournament.Teams ? tournament.Teams.length : 0
+  };
+}
+/* ===============================
+   MATCH SERIALIZER
+================================ */
+/* ===============================
+   MATCH SERIALIZER
+================================ */
+function MatchSerializer(match) {
+  return {
+    id: match.id,
+    tournament_id: match.TournamentId,
+    round_name: match.round_name,
+    round_number: match.round_number,
+    match_number: match.match_number,
+    
+    team1_id: match.team1_id,
+    // 🌟 PRIORITY: Actual Name > Database Placeholder > "TBD"
+    team1_name: match.Team1 ? match.Team1.name : (match.team1_placeholder || "TBD"),
+    team1_placeholder: match.team1_placeholder,
+    team1_jersey: match.team1_jersey,
+    team1_score: match.team1_score,
+    
+    team2_id: match.team2_id,
+    // 🌟 PRIORITY: Actual Name > Database Placeholder > "TBD"
+    team2_name: match.Team2 ? match.Team2.name : (match.team2_placeholder || "TBD"),
+    team2_placeholder: match.team2_placeholder,
+    team2_jersey: match.team2_jersey,
+    team2_score: match.team2_score,
+    
+    match_date: match.match_date,
+    match_time: match.match_time,
+    venue: match.venue,
+
+    winner_id: match.winner_id,
+    next_match_id: match.next_match_id,
+    referee_id: match.referee_id,
+    is_live: match.is_live,
+    status: match.status
+  };
+}
+
+/* ===============================
+   TOURNAMENT REGISTRATION SERIALIZER
+================================ */
+function TournamentRegistrationSerializer(registration) {
+  return {
+    id: registration.id,
+    status: registration.status,
+    payment_receipt_url: registration.payment_receipt_url,
+    
+    // Ensure the roster data is properly parsed as a JSON object for React
+    roster_data: typeof registration.roster_data === 'string' 
+      ? JSON.parse(registration.roster_data) 
+      : registration.roster_data,
+      
+    tournament_id: registration.tournament_id,
+    team_id: registration.team_id,
+    
+    // If we join the tables, grab the names so the Admin knows who it is!
+    team_name: registration.Team ? registration.Team.name : "Unknown Team",
+    tournament_name: registration.Tournament ? registration.Tournament.name : "Unknown Tournament",
+    
+    applied_on: registration.createdAt
+  };
+}
+/* ===============================
+   STANDINGS SERIALIZER
+================================ */
+function StandingsSerializer(standing) {
+  return {
+    id: standing.id,
+    tournament_id: standing.TournamentId,
+    team_id: standing.TeamId,
+    team_name: standing.Team ? standing.Team.name : "Unknown Team",
+    group_name: standing.group_name,
+    
+    matches_played: standing.matches_played,
+    wins: standing.wins,
+    draws: standing.draws,
+    losses: standing.losses,
+    
+    goals_for: standing.goals_for,
+    goals_against: standing.goals_against,
+    goal_difference: standing.goal_difference,
+    points: standing.points
+  };
+}
+
+/* ===============================
+   REFEREE SERIALIZER
+================================ */
+function RefereeSerializer(referee) {
+  return {
+    id: referee.id,
+    full_name: referee.full_name,
+    phone: referee.phone,
+    email: referee.email,
+    mpin: referee.mpin, // Sent to frontend so Admin can view/edit it
+    date_of_birth: referee.date_of_birth,
+    gender: referee.gender,
+    city: referee.city,
+    address: referee.address,
+    photo_url: referee.photo_url,
+    status: referee.status,
+    registered_on: referee.createdAt
+  };
+}
 /* ===============================
    AUTH ROUTES
 ================================ */
@@ -285,6 +640,323 @@ app.post("/auth/set-mpin", async (req, res) => {
 });
 
 /* ===============================
+   TOURNAMENT ROUTES
+================================ */
+
+// CREATE Tournament (Admin)
+// CREATE Tournament (Admin)
+app.post("/admin/tournaments", upload.fields([
+  { name: "banner_file", maxCount: 1 },
+  { name: "qr_code_file", maxCount: 1 }
+]), async (req, res) => {
+  try {
+    let bannerUrl = null;
+    let qrCodeUrl = null;
+    
+    if (req.files && req.files.banner_file) {
+      bannerUrl = await uploadToGoogleDrive(req.files.banner_file[0]);
+    }
+    
+    if (req.files && req.files.qr_code_file) {
+      qrCodeUrl = await uploadToGoogleDrive(req.files.qr_code_file[0]);
+    }
+
+    // Parse the JSON array string sent from FormData
+    const regMode = req.body.registration_mode ? JSON.parse(req.body.registration_mode) : [];
+
+    const newTournament = await Tournament.create({
+      ...req.body,
+      registration_mode: regMode,
+      banner_url: bannerUrl,
+      qr_code_url: qrCodeUrl
+    });
+
+    res.json({ message: "Tournament created successfully!", tournament: newTournament });
+  } catch (error) {
+    console.error("TOURNAMENT CREATION ERROR:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// GET All Tournaments (Used by both Admin and Managers)
+app.get("/tournaments", async (req, res) => {
+  try {
+    const tournaments = await Tournament.findAll({
+      include: [{ model: Team, attributes: ['id'] }], // To count registered teams
+      order: [['createdAt', 'DESC']]
+    });
+    
+    res.json(tournaments.map(TournamentSerializer));
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+// DELETE a Tournament (Admin)
+app.delete("/admin/tournaments/:id", async (req, res) => {
+  try {
+    const tournament = await Tournament.findByPk(req.params.id);
+    
+    if (!tournament) {
+      return res.status(404).json({ error: "Tournament not found" });
+    }
+
+    await tournament.destroy();
+    res.json({ message: "Tournament deleted successfully" });
+  } catch (error) {
+    console.error("TOURNAMENT DELETE ERROR:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
+/* ===============================
+   TOURNAMENT REGISTRATION
+================================ */
+/* ===============================
+   TOURNAMENT REGISTRATION
+================================ */
+/* ===============================
+   TOURNAMENT REGISTRATION
+================================ */
+app.post("/manager/tournaments/register", upload.single("receipt_file"), async (req, res) => {
+  try {
+    const { tournament_id, team_id, roster_data } = req.body;
+
+    // 🌟 THE FIX: First, check if the tournament is still accepting registrations!
+    const tournament = await Tournament.findByPk(tournament_id);
+    if (!tournament) {
+        return res.status(404).json({ error: "Tournament not found." });
+    }
+    
+    // If the Admin clicked "Generate Fixtures", the status is now "Ongoing"
+    if (tournament.status !== "Registration Open") {
+        return res.status(403).json({ error: "Registrations are currently closed for this tournament." });
+    }
+
+    // Check if team already registered
+    const existingEntry = await TournamentRegistration.findOne({
+      where: { tournament_id, team_id }
+    });
+    if (existingEntry) {
+      return res.status(400).json({ error: "Your team is already registered for this tournament." });
+    }
+
+    let receiptUrl = null;
+    if (req.file) {
+      receiptUrl = await uploadToGoogleDrive(req.file);
+    }
+
+    const registration = await TournamentRegistration.create({
+      tournament_id,
+      team_id,
+      roster_data: JSON.parse(roster_data),
+      payment_receipt_url: receiptUrl,
+      status: "Pending Verification"
+    });
+
+    res.json({ message: "Registration submitted successfully!", registration });
+  } catch (error) {
+    console.error("REGISTRATION ERROR:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// GET all matches for a specific tournament
+app.get("/admin/tournaments/:id/matches", async (req, res) => {
+  try {
+    const matches = await Match.findAll({
+      where: { TournamentId: req.params.id }, // Sequelize auto-generates this foreign key
+      include: [
+        { model: Team, as: 'Team1', attributes: ['id', 'name'] },
+        { model: Team, as: 'Team2', attributes: ['id', 'name'] },
+        { model: Team, as: 'Winner', attributes: ['id', 'name'] }
+      ],
+      order: [['round_number', 'ASC'], ['match_number', 'ASC']]
+    });
+    
+    // We use the Serializer you added earlier!
+    res.json(matches.map(MatchSerializer));
+  } catch (error) {
+    console.error("FETCH MATCHES ERROR:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
+/* ===============================
+   UNIVERSAL MATCH COMPLETION ENGINE
+================================ */
+/* ===============================
+   ADMIN: COMPLETE MATCH & ADVANCE
+================================ */
+app.put("/admin/matches/:id/complete", async (req, res) => {
+  try {
+    const { team1_score, team2_score } = req.body;
+    const match = await Match.findByPk(req.params.id);
+    
+    if (!match) return res.status(404).json({ error: "Match not found" });
+
+    // 🌟 THE FIX: Force these into actual numbers so JavaScript math works properly!
+    const s1_score = parseInt(team1_score) || 0;
+    const s2_score = parseInt(team2_score) || 0;
+
+    match.team1_score = s1_score;
+    match.team2_score = s2_score;
+    match.is_live = false;
+    match.status = "Completed";
+
+    // --- LEAGUE OR GROUP STAGE MATH ---
+    if (match.match_type === "League" || match.match_type === "Group") {
+      const isDraw = s1_score === s2_score;
+      match.is_draw = isDraw;
+      match.winner_id = isDraw ? null : (s1_score > s2_score ? match.team1_id : match.team2_id);
+
+      // 🌟 FIXED: Use findOne so it grabs the exact existing standing row safely
+      const standings1 = await Standings.findOne({ where: { TournamentId: match.TournamentId, TeamId: match.team1_id }});
+      const standings2 = await Standings.findOne({ where: { TournamentId: match.TournamentId, TeamId: match.team2_id }});
+
+      if (standings1 && standings2) {
+          // Explicitly fallback to 0 before adding, preventing NaN errors
+          standings1.matches_played = (standings1.matches_played || 0) + 1;
+          standings1.goals_for = (standings1.goals_for || 0) + s1_score;
+          standings1.goals_against = (standings1.goals_against || 0) + s2_score;
+          
+          standings2.matches_played = (standings2.matches_played || 0) + 1;
+          standings2.goals_for = (standings2.goals_for || 0) + s2_score;
+          standings2.goals_against = (standings2.goals_against || 0) + s1_score;
+
+          if (isDraw) {
+            standings1.draws = (standings1.draws || 0) + 1; 
+            standings1.points = (standings1.points || 0) + 1;
+            
+            standings2.draws = (standings2.draws || 0) + 1; 
+            standings2.points = (standings2.points || 0) + 1;
+          } else if (s1_score > s2_score) {
+            standings1.wins = (standings1.wins || 0) + 1; 
+            standings1.points = (standings1.points || 0) + 3;
+            
+            standings2.losses = (standings2.losses || 0) + 1;
+          } else {
+            standings2.wins = (standings2.wins || 0) + 1; 
+            standings2.points = (standings2.points || 0) + 3;
+            
+            standings1.losses = (standings1.losses || 0) + 1;
+          }
+
+          standings1.goal_difference = standings1.goals_for - standings1.goals_against;
+          standings2.goal_difference = standings2.goals_for - standings2.goals_against;
+
+          await standings1.save();
+          await standings2.save();
+      }
+    } 
+    // --- KNOCKOUT MATH (BRACKET ADVANCEMENT) ---
+    else {
+      if (s1_score === s2_score) return res.status(400).json({ error: "Knockout matches cannot end in a draw." });
+      
+      const winnerId = s1_score > s2_score ? match.team1_id : match.team2_id;
+      match.winner_id = winnerId;
+
+      // 🌟 THE AUTOMATION: Push winner to the linked next match
+      if (match.next_match_id) {
+        const nextMatch = await Match.findByPk(match.next_match_id);
+        if (nextMatch) {
+          // If Team 1 slot is empty, fill it. Otherwise, fill Team 2.
+          if (!nextMatch.team1_id) {
+            nextMatch.team1_id = winnerId;
+          } else if (!nextMatch.team2_id) {
+            nextMatch.team2_id = winnerId;
+          }
+
+          // 🌟 AUTO-UPDATE STATUS: If both teams are now present, it's ready for a referee!
+          if (nextMatch.team1_id && nextMatch.team2_id) {
+            nextMatch.status = "Pending Setup";
+          }
+
+          await nextMatch.save();
+        }
+      }
+    }
+
+    await match.save();
+    res.json({ message: "Match completed and winner advanced!", match });
+  } catch (error) {
+    console.error("ADMIN COMPLETE ERROR:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
+/* ===============================
+   MANAGER'S TOURNAMENT STATUS
+================================ */
+app.get("/manager/my-tournaments/:clubId", async (req, res) => {
+  try {
+    // 1. Find the manager's permanent team
+    const team = await Team.findOne({ where: { club_id: req.params.clubId } });
+    
+    if (!team) {
+      return res.json({ registrations: [], matches: [] });
+    }
+
+    // 2. Find all tournaments this team has registered for
+    const registrations = await TournamentRegistration.findAll({
+      where: { team_id: team.id },
+      include: [
+        { model: Tournament } // Attach the tournament details
+      ],
+      order: [['createdAt', 'DESC']]
+    });
+
+    // Note: Once the Admin "Generates Fixtures", we will fetch the 'Matches' table here 
+    // to show exactly who they are playing. For now, we will return the registrations.
+
+    res.json({ registrations });
+  } catch (error) {
+    console.error("MY TOURNAMENTS ERROR:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
+/* ===============================
+   ADMIN: TOURNAMENT REGISTRATIONS
+================================ */
+
+// GET all tournament registrations
+app.get("/admin/tournament-registrations", async (req, res) => {
+  try {
+    const registrations = await TournamentRegistration.findAll({
+      include: [
+        { model: Tournament },
+        { 
+          model: Team, 
+          include: [
+            { model: Club }, // To get the Manager/Club name
+            { model: Player } // To map the roster IDs to actual player names
+          ] 
+        }
+      ],
+      order: [['createdAt', 'DESC']]
+    });
+    res.json(registrations);
+  } catch (error) {
+    console.error("ADMIN FETCH REGISTRATIONS ERROR:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// UPDATE registration status (Approve/Reject)
+app.put("/admin/tournament-registrations/:id/status", async (req, res) => {
+  try {
+    const { status } = req.body;
+    const registration = await TournamentRegistration.findByPk(req.params.id);
+    
+    if (!registration) {
+      return res.status(404).json({ error: "Registration not found" });
+    }
+
+    registration.status = status;
+    await registration.save();
+    
+    res.json({ message: `Registration ${status}`, registration });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+/* ===============================
    LOGIN (ROLE BASED)
 ================================ */
 
@@ -293,7 +965,6 @@ app.post("/auth/login", async (req, res) => {
 
   try {
     const admin = await Admin.findOne({ where: { phone, mpin } });
-
     if (admin) {
       return res.json({
         message: "Admin login successful",
@@ -302,21 +973,19 @@ app.post("/auth/login", async (req, res) => {
     }
 
     const manager = await Manager.findOne({ where: { phone, mpin } });
-
     if (manager) {
       return res.json({
         message: "Manager login successful",
         user: {
           id: manager.id,
           name: manager.name,
-          club_id: manager.club_id,
+          club_id: manager.club_id, // 🌟 This will be null if they haven't set up a club
           role: "manager",
         },
       });
     }
 
     const player = await Player.findOne({ where: { phone, mpin } });
-
     if (player) {
       return res.json({
         message: "Player login successful",
@@ -324,9 +993,398 @@ app.post("/auth/login", async (req, res) => {
       });
     }
 
+    const referee = await Referee.findOne({ where: { phone, mpin } });
+    if (referee) {
+      if (referee.status !== 'Active') {
+        return res.status(403).json({ error: "Your account is currently inactive or suspended." });
+      }
+      return res.json({
+        message: "Referee login successful",
+        user: { id: referee.id, name: referee.name, role: "referee" },
+      });
+    }
+
     res.status(401).json({ error: "Invalid Phone or MPIN" });
   } catch (error) {
     res.status(500).json({ error: error.message });
+  }
+});
+/* ===============================
+   THE MASTER FIXTURE GENERATOR
+================================ */
+app.post("/admin/tournaments/:id/generate-fixtures", async (req, res) => {
+  try {
+    const tournamentId = req.params.id;
+    
+    // 1. Fetch Tournament & Approved Teams
+    const tournament = await Tournament.findByPk(tournamentId);
+    if (!tournament) return res.status(404).json({ error: "Tournament not found" });
+
+    const registrations = await TournamentRegistration.findAll({
+      where: { tournament_id: tournamentId, status: "Approved" },
+      include: [{ model: Team }]
+    });
+
+    if (registrations.length < 2) {
+      return res.status(400).json({ error: "Not enough approved teams to start." });
+    }
+
+    let teams = registrations.map(reg => reg.Team).sort(() => Math.random() - 0.5);
+    
+    // Clear any old data if regenerating
+    await Match.destroy({ where: { TournamentId: tournamentId } });
+    await Standings.destroy({ where: { TournamentId: tournamentId } });
+
+    let matchesToCreate = [];
+    const format = tournament.format; // 'Knockout', 'League', or 'Group Stages + Knockout'
+
+    /* ---------------------------------------------------
+       FORMAT 1: PURE KNOCKOUT
+    --------------------------------------------------- */
+    /* ---------------------------------------------------
+       FORMAT 1: PURE KNOCKOUT (SMART DISTRIBUTION)
+    --------------------------------------------------- */
+    /* ---------------------------------------------------
+       FORMAT 1: PURE KNOCKOUT (PERFECT BYES + STRICT ROUTING)
+    --------------------------------------------------- */
+    if (format === "Knockout") {
+      const totalTeams = teams.length;
+      
+      // Find the next power of 2 (e.g., if 5 teams, next is 8)
+      const nextPowerOf2 = Math.pow(2, Math.ceil(Math.log2(totalTeams)));
+      const totalRounds = Math.log2(nextPowerOf2);
+      
+      // Calculate how many byes we need
+      const numByes = nextPowerOf2 - totalTeams;
+      const numFirstRoundMatches = totalTeams - numByes; // Teams that actually play in Round 1
+      
+      // Separate teams into those playing Round 1 and those getting a Bye
+      const playingTeams = teams.slice(0, numFirstRoundMatches);
+      const byeTeams = teams.slice(numFirstRoundMatches);
+
+      let matchCounter = 1;
+      let previousRoundMatches = [];
+
+      for (let r = 1; r <= totalRounds; r++) {
+        const matchesInRound = nextPowerOf2 / Math.pow(2, r);
+        let currentRoundMatches = [];
+        let playingTeamIndex = 0;
+        let byeTeamIndex = 0;
+
+        for (let m = 0; m < matchesInRound; m++) {
+           let team1_id = null;
+           let team2_id = null;
+           let t1_placeholder = null;
+           let t2_placeholder = null;
+           let status = "Pending TBD"; 
+
+           if (r === 1) {
+              // Distribute teams playing in Round 1
+              if (playingTeamIndex < playingTeams.length) {
+                team1_id = playingTeams[playingTeamIndex++]?.id || null;
+              }
+              if (playingTeamIndex < playingTeams.length) {
+                team2_id = playingTeams[playingTeamIndex++]?.id || null;
+              }
+              
+              // If we have teams, it's a real match ready for a ref
+              if (team1_id && team2_id) {
+                status = "Pending Setup";
+              } 
+              // If we ran out of playing teams, start distributing the Byes
+              else if (!team1_id && !team2_id && byeTeamIndex < byeTeams.length) {
+                 team1_id = byeTeams[byeTeamIndex++]?.id || null;
+                 status = "Completed"; // It's a Bye, so they win instantly
+              }
+           } else {
+              // Assign placeholders for Round 2+
+              const sourceMatch1 = previousRoundMatches[m * 2];
+              const sourceMatch2 = previousRoundMatches[m * 2 + 1];
+              t1_placeholder = sourceMatch1 ? `Winner Match ${sourceMatch1.match_number}` : "TBD";
+              t2_placeholder = sourceMatch2 ? `Winner Match ${sourceMatch2.match_number}` : "TBD";
+           }
+
+           let roundName = `Round ${r}`;
+           if (r === totalRounds) roundName = "Final";
+           else if (r === totalRounds - 1) roundName = "Semi-Final";
+           else if (r === totalRounds - 2) roundName = "Quarter-Final";
+
+           const newMatch = await Match.create({
+              TournamentId: tournamentId,
+              match_type: "Knockout",
+              round_name: roundName,
+              round_number: r,
+              match_number: matchCounter++,
+              team1_id,
+              team2_id,
+              team1_placeholder: t1_placeholder,
+              team2_placeholder: t2_placeholder,
+              winner_id: (status === "Completed") ? (team1_id || team2_id) : null, 
+              status
+           });
+           currentRoundMatches.push(newMatch);
+        }
+
+        // Link winners to the next round
+        if (r > 1) {
+           for (let i = 0; i < previousRoundMatches.length; i++) {
+              const nextMatchIndex = Math.floor(i / 2);
+              const parentMatch = currentRoundMatches[nextMatchIndex];
+              previousRoundMatches[i].next_match_id = parentMatch.id;
+              await previousRoundMatches[i].save();
+
+              // 🌟 STRICT AUTO-ADVANCE BYES
+              // This instantly pushes the automatic winners forward to the correct slot!
+              if (previousRoundMatches[i].status === "Completed") {
+                  const winnerId = previousRoundMatches[i].winner_id;
+                  
+                  // STRICT ROUTING: Even index -> Top Slot, Odd index -> Bottom Slot
+                  if (i % 2 === 0) {
+                      parentMatch.team1_id = winnerId;
+                  } else {
+                      parentMatch.team2_id = winnerId;
+                  }
+                  
+                  // If both teams arrived via Byes, make the match ready for a Ref
+                  if (parentMatch.team1_id && parentMatch.team2_id) {
+                      parentMatch.status = "Pending Setup";
+                  }
+                  await parentMatch.save();
+              }
+           }
+        }
+        previousRoundMatches = currentRoundMatches;
+      }
+    }
+    /* ---------------------------------------------------
+       FORMAT 2: LEAGUE (ROUND-ROBIN)
+    --------------------------------------------------- */
+    else if (format === "League") {
+      // Initialize Standings
+      await Standings.bulkCreate(teams.map(team => ({
+        TournamentId: tournamentId, TeamId: team.id, group_name: null 
+      })));
+
+      // Circle Algorithm
+      if (teams.length % 2 !== 0) teams.push({ id: null, name: "BYE" }); 
+      
+      const numTeams = teams.length;
+      let matchCounter = 1;
+
+      for (let round = 0; round < numTeams - 1; round++) {
+        for (let match = 0; match < numTeams / 2; match++) {
+          let home = (round + match) % (numTeams - 1);
+          let away = (numTeams - 1 - match + round) % (numTeams - 1);
+          if (match === 0) away = numTeams - 1; 
+
+          const team1 = teams[home];
+          const team2 = teams[away];
+
+          if (team1.id !== null && team2.id !== null) {
+            matchesToCreate.push({
+              TournamentId: tournamentId,
+              match_type: "League",
+              round_name: `Matchday ${round + 1}`,
+              round_number: round + 1,
+              match_number: matchCounter++,
+              team1_id: team1.id,
+              team2_id: team2.id,
+              status: "Pending Setup"
+            });
+          }
+        }
+      }
+    } 
+    
+    /* ---------------------------------------------------
+       FORMAT 3: GROUP STAGES + KNOCKOUT
+    --------------------------------------------------- */
+   else if (format === "Group Stages + Knockout") {
+      // 1. Determine Groups (Aiming for 4 teams per group)
+      const numGroups = Math.max(1, Math.floor(teams.length / 4)); 
+      const groupNames = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H'];
+      let groups = Array.from({ length: numGroups }, () => []);
+
+      // 2. Snake-draft distribute teams
+      teams.forEach((team, index) => {
+        groups[index % numGroups].push(team);
+      });
+
+      let standingsData = [];
+      let matchCounter = 1;
+      let highestGroupRound = 0; // Track this so we can put KO rounds AFTER groups
+
+      // 3. Process each group as a mini-league
+      groups.forEach((groupTeams, groupIndex) => {
+        const gName = groupNames[groupIndex];
+        
+        groupTeams.forEach(team => {
+          standingsData.push({ TournamentId: tournamentId, TeamId: team.id, group_name: gName });
+        });
+
+        if (groupTeams.length % 2 !== 0) groupTeams.push({ id: null, name: "BYE" });
+        const gNumTeams = groupTeams.length;
+
+        for (let round = 0; round < gNumTeams - 1; round++) {
+          if (round + 1 > highestGroupRound) highestGroupRound = round + 1;
+
+          for (let match = 0; match < gNumTeams / 2; match++) {
+            let home = (round + match) % (gNumTeams - 1);
+            let away = (gNumTeams - 1 - match + round) % (gNumTeams - 1);
+            if (match === 0) away = gNumTeams - 1;
+
+            const t1 = groupTeams[home];
+            const t2 = groupTeams[away];
+
+            if (t1.id !== null && t2.id !== null) {
+              matchesToCreate.push({
+                TournamentId: tournamentId,
+                match_type: "Group",
+                group_name: gName,
+                round_name: `Group ${gName} - MD ${round + 1}`,
+                round_number: round + 1, // Will group them in UI columns correctly
+                match_number: matchCounter++,
+                team1_id: t1.id,
+                team2_id: t2.id,
+                status: "Pending Setup"
+              });
+            }
+          }
+        }
+      });
+      await Standings.bulkCreate(standingsData);
+
+      // 4. 🌟 THE MAGIC: BUILD THE KNOCKOUT TREE MAP!
+      // Top 2 from each group advance. 
+      const advancingTeamsCount = numGroups * 2;
+      const nextPowerOf2 = Math.pow(2, Math.ceil(Math.log2(advancingTeamsCount)));
+      const koRounds = Math.log2(nextPowerOf2);
+
+      let previousRoundMatches = [];
+      
+      // Setup Placeholders for Round 1 of Knockouts (e.g., 1st Group A vs 2nd Group B)
+      let koRound1Placeholders = [];
+      for (let i = 0; i < numGroups; i += 2) {
+          const g1 = groupNames[i];
+          const g2 = groupNames[i+1] || groupNames[0]; // Cross matches
+          koRound1Placeholders.push({ t1: `1st Group ${g1}`, t2: `2nd Group ${g2}` });
+          koRound1Placeholders.push({ t1: `1st Group ${g2}`, t2: `2nd Group ${g1}` });
+      }
+
+      for (let r = 1; r <= koRounds; r++) {
+         const matchesInRound = nextPowerOf2 / Math.pow(2, r);
+         let currentRoundMatches = [];
+
+         for (let m = 0; m < matchesInRound; m++) {
+            let t1_placeholder = null;
+            let t2_placeholder = null;
+
+            if (r === 1 && koRound1Placeholders[m]) {
+               t1_placeholder = koRound1Placeholders[m].t1;
+               t2_placeholder = koRound1Placeholders[m].t2;
+            }
+
+            let roundName = `KO Round ${r}`;
+            if (r === koRounds) roundName = "Final";
+            else if (r === koRounds - 1) roundName = "Semi-Final";
+            else if (r === koRounds - 2) roundName = "Quarter-Final";
+
+            const newMatch = await Match.create({
+               TournamentId: tournamentId,
+               match_type: "Knockout", 
+               round_name: roundName,
+               // We add highestGroupRound so these columns appear to the right of the Group matches in your UI!
+               round_number: highestGroupRound + r, 
+               match_number: matchCounter++,
+               team1_placeholder: t1_placeholder,
+               team2_placeholder: t2_placeholder,
+               status: "Pending TBD" // Waiting for group stage to finish!
+            });
+
+            currentRoundMatches.push(newMatch);
+         }
+
+         // Link the Knockout Tree
+         if (r > 1) {
+            for (let i = 0; i < previousRoundMatches.length; i++) {
+               const nextMatchIndex = Math.floor(i / 2);
+               previousRoundMatches[i].next_match_id = currentRoundMatches[nextMatchIndex].id;
+               await previousRoundMatches[i].save();
+            }
+         }
+         previousRoundMatches = currentRoundMatches;
+      }
+    }
+
+    /* ---------------------------------------------------
+       SAVE TO DATABASE
+    --------------------------------------------------- */
+    await Match.bulkCreate(matchesToCreate);
+
+    await tournament.update({ status: "Ongoing" });
+
+    res.json({ 
+      message: `${format} fixtures generated successfully! Registrations are now closed.`, 
+      matches_created: matchesToCreate.length 
+    });
+
+  } catch (error) {
+    console.error("MASTER FIXTURE ENGINE ERROR:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.delete("/admin/tournaments/:id/fixtures", async (req, res) => {
+  try {
+    const tournamentId = req.params.id;
+    
+    // Destroy all matches and standings for this tournament
+    await Match.destroy({ where: { TournamentId: tournamentId } });
+    await Standings.destroy({ where: { TournamentId: tournamentId } });
+
+    res.json({ message: "Bracket has been completely reset!" });
+  } catch (error) {
+    console.error("RESET BRACKET ERROR:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
+/* ===============================
+   MANAGER CLUB SETUP WITH DRIVE
+================================ */
+app.post("/manager/setup-club-with-drive", upload.single("club_logo"), async (req, res) => {
+  const { manager_id, name, city } = req.body;
+
+  try {
+    if (!req.file) {
+      return res.status(400).json({ error: "Club logo file is required" });
+    }
+
+    // 1. Upload Logo to Google Drive
+    const logoUrl = await uploadToGoogleDrive(req.file);
+
+    // 2. Create the Club Entry
+    const newClub = await Club.create({
+      name,
+      city,
+      logo_url: logoUrl
+    });
+
+    // 3. Link Club to the Manager
+    const manager = await Manager.findByPk(manager_id);
+    if (!manager) {
+      return res.status(404).json({ error: "Manager account not found" });
+    }
+
+    await manager.update({ club_id: newClub.id });
+
+    res.json({ 
+      message: "Club successfully created and linked", 
+      club_id: newClub.id 
+    });
+
+  } catch (error) {
+    console.error("CLUB SETUP ERROR:", error);
+    res.status(500).json({ error: "Internal Server Error", details: error.message });
   }
 });
 
@@ -336,17 +1394,15 @@ app.post("/auth/login", async (req, res) => {
 
 app.post(
   "/players/profile",
-
   upload.fields([
     { name: "player_photo", maxCount: 1 },
-    { name: "gov_id_file", maxCount: 1 },
+    { name: "gov_doc_1", maxCount: 1 },    // 🌟 New: Matches frontend name
+    { name: "gov_doc_2", maxCount: 1 },    // 🌟 New: Matches frontend name
+    { name: "gov_doc_3", maxCount: 1 },    // 🌟 New: Matches frontend name
     { name: "fitness_certificate", maxCount: 1 }
   ]),
-
   async (req, res) => {
-
     try {
-
       const { id } = req.body;
 
       if (!id) {
@@ -360,31 +1416,38 @@ app.post(
       }
 
       /* ===============================
-         HANDLE FILES SAFELY
+         HANDLE FILES SAFELY WITH DRIVE
       ================================ */
 
+      // Load existing URLs just in case they are re-submitting without changing a file
       let photoUrl = player.player_photo_url;
-      let govIdUrl = player.gov_id_url;
+      let govDoc1Url = player.gov_doc_1_url;
+      let govDoc2Url = player.gov_doc_2_url;
+      let govDoc3Url = player.gov_doc_3_url;
       let fitnessUrl = player.fitness_certificate_url;
 
+      // Upload new files if they were attached
       if (req.files?.player_photo) {
         photoUrl = await uploadToGoogleDrive(req.files.player_photo[0]);
       }
-
-      if (req.files?.gov_id_file) {
-        govIdUrl = await uploadToGoogleDrive(req.files.gov_id_file[0]);
+      if (req.files?.gov_doc_1) {
+        govDoc1Url = await uploadToGoogleDrive(req.files.gov_doc_1[0]);
       }
-
+      if (req.files?.gov_doc_2) {
+        govDoc2Url = await uploadToGoogleDrive(req.files.gov_doc_2[0]);
+      }
+      if (req.files?.gov_doc_3) {
+        govDoc3Url = await uploadToGoogleDrive(req.files.gov_doc_3[0]);
+      }
       if (req.files?.fitness_certificate) {
         fitnessUrl = await uploadToGoogleDrive(req.files.fitness_certificate[0]);
       }
 
       /* ===============================
-         UPDATE PLAYER
+         UPDATE PLAYER DATABASE
       ================================ */
 
       await player.update({
-
         full_name: req.body.full_name,
         dob: req.body.dob,
         age: req.body.age,
@@ -399,7 +1462,6 @@ app.post(
 
         position: req.body.position,
         strong_foot: req.body.strong_foot,
-        preferred_team: req.body.preferred_team,
         experience_years: req.body.experience_years,
 
         city: req.body.city,
@@ -418,9 +1480,13 @@ app.post(
 
         club_applied: req.body.club_applied,
 
+        // Save the new Drive URLs
         player_photo_url: photoUrl,
-        gov_id_url: govIdUrl,
+        gov_doc_1_url: govDoc1Url,
+        gov_doc_2_url: govDoc2Url,
+        gov_doc_3_url: govDoc3Url,
         fitness_certificate_url: fitnessUrl,
+        
         status: "Applied"
       });
 
@@ -430,18 +1496,14 @@ app.post(
       });
 
     } catch (error) {
-
       console.error("PLAYER UPDATE ERROR:", error);
-
       res.status(500).json({
         error: "Server error",
         details: error.message
       });
-
     }
-
-  });
-
+  }
+);
 app.get("/players/profile/:id", async (req, res) => {
 
   try {
@@ -510,18 +1572,14 @@ app.post("/trial/evaluate", upload.single("trial_photo"), async (req, res) => {
     medical_notes
   } = req.body;
 
- try {
+  try {
 
-    let trial = await Trial.findOne({
+    const trial = await Trial.findOne({
       where: { PlayerId: player_id }
     });
 
-    // 🌟 THE FIX: Create the trial if it doesn't exist yet!
     if (!trial) {
-      trial = await Trial.create({
-        PlayerId: player_id,
-        trial_date: new Date(), // Sets the date to right now
-      });
+      return res.status(404).json({ error: "Trial not found" });
     }
 
     /* Upload live trial photo */
@@ -625,7 +1683,163 @@ app.post("/admin/update-status", async (req, res) => {
     player.status = status;
     await player.save();
 
+    // 🌟 AUTOMATION: Auto-add to permanent team if status is set to "Registered"
+    if (status === "Registered" && player.club_applied) {
+        const team = await Team.findOne({ where: { club_id: player.club_applied } });
+        
+        if (team) {
+            // Find highest jersey number to avoid conflicts
+            const currentMax = await TeamPlayer.max('jersey_number', { where: { team_id: team.id } });
+            const nextJersey = (currentMax || 0) + 1;
+
+            await TeamPlayer.findOrCreate({
+                where: { team_id: team.id, player_id: player.id },
+                defaults: {
+                    jersey_number: nextJersey,
+                    assigned_position: player.position || "Reserve"
+                }
+            });
+        }
+    }
+
     res.json({ message: "Player status updated successfully" });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/* ===============================
+   COACH (MANAGER) MANAGEMENT ROUTES
+================================ */
+
+// 1. Create a New Coach
+app.post("/admin/coaches", async (req, res) => {
+  const { name, phone, mpin, club_id } = req.body;
+  try {
+    const newCoach = await Manager.create({
+      name,
+      phone,
+      mpin,
+      club_id: club_id || null // Coaches can be independent or assigned to a club
+    });
+    res.json(newCoach);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// 2. View All Coaches
+// GET All Coaches with their assigned Club details
+app.get("/admin/coaches", async (req, res) => {
+  try {
+    const coaches = await Manager.findAll({
+      // include the Club model so coach.Club is populated
+      include: [{
+        model: Club,
+        attributes: ['id', 'name', 'city', 'logo_url'] 
+      }]
+    });
+    res.json(coaches);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// GET all players with their club details
+// GET all players with their club details
+// Change app.post to app.get
+app.get("/admin/players", async (req, res) => {
+  try {
+    const players = await Player.findAll({
+      include: [{
+        model: Club,
+        attributes: ['name', 'logo_url']
+      }]
+    });
+    res.json(players);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/* ===============================
+   UNIFIED USER MANAGEMENT ROUTE
+================================ */
+app.get("/admin/users", async (req, res) => {
+  try {
+    // Fetch all categories simultaneously
+    const [admins, managers, players] = await Promise.all([
+      Admin.findAll({ attributes: ['id', 'name', 'phone'] }),
+      Manager.findAll({ attributes: ['id', 'name', 'phone'] }),
+      Player.findAll({ attributes: ['id', 'full_name', 'phone', 'status'] })
+    ]);
+
+    // Format them into a single list
+    const allUsers = [
+      ...admins.map(u => ({ id: `admin-${u.id}`, name: u.name, phone: u.phone, role: 'Admin', status: 'Active' })),
+      ...managers.map(u => ({ id: `coach-${u.id}`, name: u.name, phone: u.phone, role: 'Manager', status: 'Active' })),
+      ...players.map(u => ({ id: `player-${u.id}`, name: u.full_name, phone: u.phone, role: 'Player', status: u.status || 'Registered' }))
+    ];
+
+    res.json(allUsers);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/* ===============================
+   DASHBOARD STATISTICS ROUTE
+================================ */
+app.get("/admin/dashboard-stats", async (req, res) => {
+  try {
+    const [totalPlayers, pendingApps, totalCoaches] = await Promise.all([
+      Player.count(),
+      Player.count({ where: { status: 'Recommended' } }),
+      Manager.count()
+    ]);
+
+    const recentApplications = await Player.findAll({
+      where: { status: 'Recommended' },
+      limit: 5,
+      order: [['createdAt', 'DESC']],
+      include: [{ model: Club, attributes: ['name'] }]
+    });
+
+    res.json({
+      counts: {
+        totalPlayers,
+        pendingApps,
+        activeCoaches: totalCoaches,
+        activeTeams: 0 // Placeholder as requested
+      },
+      recentApplications
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// 3. Update a Coach (Edit)
+app.put("/admin/coaches/:id", async (req, res) => {
+  try {
+    const coach = await Manager.findByPk(req.params.id);
+    if (!coach) return res.status(404).json({ error: "Coach not found" });
+    
+    await coach.update(req.body);
+    res.json({ message: "Coach updated successfully", coach });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// 4. Delete a Coach
+app.delete("/admin/coaches/:id", async (req, res) => {
+  try {
+    const coach = await Manager.findByPk(req.params.id);
+    if (!coach) return res.status(404).json({ error: "Coach not found" });
+
+    await coach.destroy();
+    res.json({ message: "Coach deleted successfully" });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -643,7 +1857,6 @@ app.post("/manager/questions", async (req,res)=>{
 });
 
 app.get("/manager/questions/:clubId", async (req,res)=>{
-
  const questions = await TrialQuestion.findAll({
   where:{ club_id:req.params.clubId }
  });
@@ -651,22 +1864,690 @@ app.get("/manager/questions/:clubId", async (req,res)=>{
  res.json(questions);
 });
 
+/* ===============================
+   NEW: EDIT AND DELETE QUESTIONS
+================================ */
+
+// UPDATE a specific question
+app.put("/manager/questions/:id", async (req, res) => {
+  try {
+    const { question } = req.body;
+    const questionId = req.params.id;
+
+    const existingQuestion = await TrialQuestion.findByPk(questionId);
+    if (!existingQuestion) {
+      return res.status(404).json({ error: "Question not found" });
+    }
+
+    await existingQuestion.update({ question });
+    res.json({ success: true, message: "Question updated" });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// DELETE a specific question
+app.delete("/manager/questions/:id", async (req, res) => {
+  try {
+    const questionId = req.params.id;
+    
+    const existingQuestion = await TrialQuestion.findByPk(questionId);
+    if (!existingQuestion) {
+      return res.status(404).json({ error: "Question not found" });
+    }
+
+    await existingQuestion.destroy();
+    res.json({ success: true, message: "Question deleted" });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 app.post("/admin/approve-player", async (req, res) => {
   const { player_id } = req.body;
 
-  const player = await Player.findByPk(player_id);
+  try {
+      const player = await Player.findByPk(player_id);
 
-  if (!player) {
-    return res.status(404).json({ error: "Player not found" });
+      if (!player) {
+        return res.status(404).json({ error: "Player not found" });
+      }
+
+      player.status = "Registered";
+      await player.save();
+
+      // 🌟 AUTOMATION: Auto-add to permanent team on direct approval
+      if (player.club_applied) {
+          const team = await Team.findOne({ where: { club_id: player.club_applied } });
+          
+          if (team) {
+              // Find highest jersey number to avoid conflicts
+              const currentMax = await TeamPlayer.max('jersey_number', { where: { team_id: team.id } });
+              const nextJersey = (currentMax || 0) + 1;
+
+              await TeamPlayer.findOrCreate({
+                  where: { team_id: team.id, player_id: player.id },
+                  defaults: {
+                      jersey_number: nextJersey,
+                      assigned_position: player.position || "Reserve"
+                  }
+              });
+          }
+      }
+
+      res.json({ message: "Player approved and added to team successfully" });
+  } catch (error) {
+      res.status(500).json({ error: error.message });
   }
-
-  player.status = "Registered";
-  await player.save();
-
-  res.json({ message: "Player approved successfully" });
+});
+/* ===============================
+   PHONE AVAILABILITY CHECK
+================================ */
+/* ===============================
+   PHONE AVAILABILITY CHECK (ALL ROLES)
+================================ */
+app.post("/auth/check-phone", async (req, res) => {
+  const { phone } = req.body;
+  try {
+    // Check all three databases at the exact same time
+    const [existingPlayer, existingManager, existingAdmin, existingReferee] = await Promise.all([
+      Player.findOne({ where: { phone } }),
+      Manager.findOne({ where: { phone } }),
+      Admin.findOne({ where: { phone } }),
+      Referee.findOne({ where: { phone } }) // 🌟 NEW
+    ]);
+    
+    if (existingPlayer || existingManager || existingAdmin || existingReferee) {
+      return res.status(400).json({ error: "This phone number is already registered to an account." });
+    }
+    
+    // If it's completely new, give the green light
+    res.json({ available: true });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
 });
 
+/* ===============================
+   PERMANENT TEAM ROUTES
+================================ */
 
+// 1. Create a Team
+app.post("/manager/team", async (req, res) => {
+  const { club_id, name, jersey_color, roster } = req.body;
+
+  try {
+    // Prevent creating multiple permanent teams for the same club
+    const existingTeam = await Team.findOne({ where: { club_id } });
+    if (existingTeam) {
+      return res.status(400).json({ error: "A permanent team already exists for this club." });
+    }
+
+    // Create the team
+    const team = await Team.create({
+      club_id,
+      name,
+      jersey_color,
+      status: "Pending Approval"
+    });
+
+    // Add players to the team using the TeamPlayer junction table
+    // The roster comes from frontend as: { playerId: { jerseyNumber: "10", assignedPosition: "Forward" } }
+    for (const [playerId, details] of Object.entries(roster)) {
+      await TeamPlayer.create({
+        team_id: team.id,
+        player_id: playerId,
+        jersey_number: details.jerseyNumber,
+        assigned_position: details.assignedPosition
+      });
+    }
+
+    res.json({ message: "Team created successfully and sent for approval", team });
+  } catch (error) {
+    console.error("TEAM CREATION ERROR:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// 2. Get Team for a Club
+app.get("/manager/team/:clubId", async (req, res) => {
+  try {
+    const team = await Team.findOne({
+      where: { club_id: req.params.clubId },
+      include: [{
+        model: Player,
+        // Include the junction table attributes we want
+        through: { attributes: ['jersey_number', 'assigned_position'] }
+      }]
+    });
+
+    if (!team) {
+      return res.status(404).json({ error: "No team found" });
+    }
+
+    res.json(TeamSerializer(team));
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+// GET all teams for the Admin dashboard (WITH ROSTERS)
+// GET all teams for the Admin dashboard
+// GET all teams for the Admin dashboard (WITH FULL ROSTERS)
+app.get("/admin/teams", async (req, res) => {
+  try {
+    const teams = await Team.findAll({
+      include: [
+        // 1. Fetch the Club info
+        { 
+            model: Club, 
+            attributes: ['name', 'city'] 
+        },
+        // 2. Fetch the Players and their specific Jersey/Position for this team
+        { 
+            model: Player, 
+            attributes: ['id', 'full_name', 'player_photo_url'],
+            through: { attributes: ['jersey_number', 'assigned_position'] } 
+        }
+      ],
+      order: [['createdAt', 'DESC']]
+    });
+    
+    res.json(teams);
+  } catch (error) {
+    console.error("Error fetching admin teams:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
+/* ===============================
+   ADMIN: EDIT MATCH TEAMS
+================================ */
+app.put("/admin/matches/:id/edit-teams", async (req, res) => {
+  try {
+    const { team1_id, team2_id } = req.body;
+    const match = await Match.findByPk(req.params.id);
+    
+    if (!match) return res.status(404).json({ error: "Match not found" });
+
+    // Update the teams (Allowing null if we want to change it back to TBD)
+    match.team1_id = team1_id || null;
+    match.team2_id = team2_id || null;
+    
+    // Automatically manage the status based on the teams
+    if (match.status === "Pending TBD" && match.team1_id && match.team2_id) {
+        match.status = "Pending Setup"; // Both teams exist, ready for a ref!
+    } else if (match.status === "Pending Setup" && (!match.team1_id || !match.team2_id)) {
+        match.status = "Pending TBD"; // Missing a team, waiting for one
+    }
+
+    await match.save();
+    res.json({ message: "Match teams updated successfully!", match });
+  } catch (error) {
+    console.error("EDIT TEAMS ERROR:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// PUT route to approve a team
+// PUT route to approve a permanent team
+app.put("/admin/teams/:id/approve", async (req, res) => {
+  try {
+    const teamId = req.params.id;
+    const team = await Team.findByPk(teamId);
+    
+    if (!team) {
+      return res.status(404).json({ error: "Team not found" });
+    }
+
+    // Update the team status to Approved
+    team.status = "Approved";
+    await team.save();
+
+    res.json({ message: "Team officially approved for tournaments!" });
+  } catch (error) {
+    console.error("TEAM APPROVAL ERROR:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
+/* ===============================
+   GET TOURNAMENT STANDINGS
+================================ */
+app.get("/tournaments/:id/standings", async (req, res) => {
+  try {
+    const standings = await Standings.findAll({
+      where: { TournamentId: req.params.id },
+      include: [
+        { model: Team, attributes: ['id', 'name'] }
+      ],
+      // OFFICIAL TIE-BREAKER LOGIC: 
+      // 1. Highest Points
+      // 2. Highest Goal Difference
+      // 3. Highest Goals Scored
+      order: [
+        ['group_name', 'ASC'], // Groups A, B, C together
+        ['points', 'DESC'], 
+        ['goal_difference', 'DESC'], 
+        ['goals_for', 'DESC']
+      ]
+    });
+
+    res.json(standings.map(StandingsSerializer));
+  } catch (error) {
+    console.error("FETCH STANDINGS ERROR:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/* ===============================
+   ADMIN: REFEREE MANAGEMENT
+================================ */
+app.get("/admin/referees", async (req, res) => {
+  try {
+    const referees = await Referee.findAll({ order: [['createdAt', 'DESC']] });
+    res.json(referees);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Create Referee (With Photo Upload)
+app.post("/admin/referees", upload.single("photo_file"), async (req, res) => {
+  try {
+    const { phone } = req.body;
+    
+    const existing = await Promise.all([
+      Player.findOne({ where: { phone } }), Manager.findOne({ where: { phone } }),
+      Admin.findOne({ where: { phone } }), Referee.findOne({ where: { phone } })
+    ]);
+
+    if (existing.some(user => user !== null)) {
+      return res.status(400).json({ error: "Phone number already in use." });
+    }
+
+    let photoUrl = null;
+    if (req.file) {
+      photoUrl = await uploadToGoogleDrive(req.file);
+    }
+
+    const referee = await Referee.create({
+      ...req.body,
+      photo_url: photoUrl
+    });
+
+    res.json({ message: "Referee profile created!", referee });
+  } catch (error) {
+    console.error("REFEREE CREATE ERROR:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.get("/admin/referees", async (req, res) => {
+  try {
+    const referees = await Referee.findAll({ order: [['createdAt', 'DESC']] });
+    res.json(referees.map(RefereeSerializer)); // 🌟 NEW: Cleanly serialized!
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Update Referee (With Optional Photo Update)
+app.put("/admin/referees/:id", upload.single("photo_file"), async (req, res) => {
+  try {
+    const referee = await Referee.findByPk(req.params.id);
+    if (!referee) return res.status(404).json({ error: "Referee not found" });
+
+    let photoUrl = referee.photo_url;
+    if (req.file) {
+      photoUrl = await uploadToGoogleDrive(req.file);
+    }
+
+    await referee.update({
+      ...req.body,
+      photo_url: photoUrl
+    });
+
+    res.json({ message: "Referee profile updated!", referee });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.delete("/admin/referees/:id", async (req, res) => {
+  try {
+    const referee = await Referee.findByPk(req.params.id);
+    if (!referee) return res.status(404).json({ error: "Referee not found" });
+    await referee.destroy();
+    res.json({ message: "Referee deleted" });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+/* ===============================
+   ADMIN: ASSIGN REFEREE TO MATCH
+================================ */
+app.put("/admin/matches/:id/assign-referee", async (req, res) => {
+  try {
+    const { referee_id, match_date, match_time, venue } = req.body;
+    const match = await Match.findByPk(req.params.id);
+    
+    if (!match) return res.status(404).json({ error: "Match not found" });
+
+    // Save the new schedule data
+    match.referee_id = referee_id || null;
+    match.match_date = match_date;
+    match.match_time = match_time;
+    match.venue = venue;
+    
+    // Upgrade status to Scheduled
+    if (match.status === "Pending Setup" && match.referee_id !== null) {
+        match.status = "Scheduled"; 
+    }
+
+    await match.save();
+    res.json({ message: "Match scheduled and Referee successfully assigned", match });
+  } catch (error) {
+    console.error("ASSIGN REFEREE ERROR:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
+/* ===============================
+   MANAGER: GET MY TEAM'S MATCHES
+*/
+/* ===============================
+   MANAGER: GET TEAM'S MATCHES
+================================ */
+/* ===============================
+   MANAGER: GET TEAM'S MATCHES
+================================ */
+app.get("/manager/teams/:id/matches", async (req, res) => {
+  try {
+    const teamId = req.params.id;
+    const matches = await Match.findAll({
+      where: {
+        // 🌟 FIXED: Using Sequelize.Op.or directly so it NEVER crashes!
+        [Sequelize.Op.or]: [
+          { team1_id: teamId },
+          { team2_id: teamId }
+        ]
+      },
+      include: [
+        { model: Team, as: 'Team1' },
+        { model: Team, as: 'Team2' }
+      ],
+      order: [['round_number', 'ASC']]
+    });
+    
+    res.json(matches.map(MatchSerializer)); 
+  } catch (error) {
+    console.error("TEAM MATCHES ERROR:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
+/* ===============================
+   REFEREE DASHBOARD ROUTES
+================================ */
+
+// 1. Get matches assigned to a specific referee (Include Teams & Players)
+/* ===============================
+    REFEREE DASHBOARD ROUTES (CLEANED & FIXED)
+================================ */
+
+// 1. Get matches assigned to a specific referee (Include Teams & Players)
+app.get("/referee/:id/matches", async (req, res) => {
+    try {
+        const refereeId = req.params.id;
+        
+        const matches = await Match.findAll({
+            where: { referee_id: refereeId },
+            include: [
+                { 
+                    model: Team, as: 'Team1', 
+                    // 🌟 FIXED: Alias must be 'Players' (Capital P) to match your association
+                    include: [{ model: Player, as: 'Players' }] 
+                },
+                { 
+                    model: Team, as: 'Team2',
+                    // 🌟 FIXED: Alias must be 'Players' (Capital P) to match your association
+                    include: [{ model: Player, as: 'Players' }] 
+                }
+            ],
+            order: [['createdAt', 'DESC']]
+        });
+        
+        res.json(matches);
+    } catch (error) {
+        console.error("REFEREE MATCHES ERROR:", error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// 2. Submit Final Match Data & Save Events
+/* ===============================
+   REFEREE: COMPLETE MATCH & ADVANCE WINNER
+================================ */
+/* ===============================
+   REFEREE: COMPLETE MATCH & ADVANCE WINNER
+================================ */
+app.put("/referee/matches/:id/complete", async (req, res) => {
+    try {
+        const { team1_score, team2_score, match_events } = req.body;
+        const match = await Match.findByPk(req.params.id);
+        
+        if (!match) return res.status(404).json({ error: "Match not found" });
+
+        // 🌟 THE FIX: Force these into actual numbers so JavaScript math works properly!
+        const s1_score = parseInt(team1_score) || 0;
+        const s2_score = parseInt(team2_score) || 0;
+
+        // 1. Save results for the current match
+        match.team1_score = s1_score;
+        match.team2_score = s2_score;
+        match.status = 'Completed';
+        match.match_events = match_events;
+        
+        // --- LEAGUE OR GROUP STAGE MATH ---
+        if (match.match_type === "League" || match.match_type === "Group") {
+            const isDraw = s1_score === s2_score;
+            match.is_draw = isDraw;
+            match.winner_id = isDraw ? null : (s1_score > s2_score ? match.team1_id : match.team2_id);
+
+            // Fetch the exact standings rows safely
+            const standings1 = await Standings.findOne({ where: { TournamentId: match.TournamentId, TeamId: match.team1_id }});
+            const standings2 = await Standings.findOne({ where: { TournamentId: match.TournamentId, TeamId: match.team2_id }});
+
+            if (standings1 && standings2) {
+                // Explicitly fallback to 0 before adding, preventing NaN errors
+                standings1.matches_played = (standings1.matches_played || 0) + 1;
+                standings1.goals_for = (standings1.goals_for || 0) + s1_score;
+                standings1.goals_against = (standings1.goals_against || 0) + s2_score;
+                
+                standings2.matches_played = (standings2.matches_played || 0) + 1;
+                standings2.goals_for = (standings2.goals_for || 0) + s2_score;
+                standings2.goals_against = (standings2.goals_against || 0) + s1_score;
+
+                // Points & Wins/Losses/Draws logic
+                if (isDraw) {
+                    standings1.draws = (standings1.draws || 0) + 1; 
+                    standings1.points = (standings1.points || 0) + 1;
+                    
+                    standings2.draws = (standings2.draws || 0) + 1; 
+                    standings2.points = (standings2.points || 0) + 1;
+                } else if (s1_score > s2_score) {
+                    standings1.wins = (standings1.wins || 0) + 1; 
+                    standings1.points = (standings1.points || 0) + 3;
+                    
+                    standings2.losses = (standings2.losses || 0) + 1;
+                } else {
+                    standings2.wins = (standings2.wins || 0) + 1; 
+                    standings2.points = (standings2.points || 0) + 3;
+                    
+                    standings1.losses = (standings1.losses || 0) + 1;
+                }
+
+                // Goal Difference
+                standings1.goal_difference = standings1.goals_for - standings1.goals_against;
+                standings2.goal_difference = standings2.goals_for - standings2.goals_against;
+
+                await standings1.save();
+                await standings2.save();
+            }
+        }
+        // --- KNOCKOUT MATH (BRACKET ADVANCEMENT) ---
+        else {
+            if (s1_score === s2_score) return res.status(400).json({ error: "Knockout matches cannot end in a draw." });
+            
+            // Determine Winner
+            const winnerId = s1_score > s2_score ? match.team1_id : match.team2_id;
+            match.winner_id = winnerId;
+
+            // 🌟 2. THE AUTOMATION: Push winner to the next round
+            if (match.next_match_id) {
+                const nextMatch = await Match.findByPk(match.next_match_id);
+                
+                if (nextMatch) {
+                    // If it's the first winner arriving, they take the Team 1 slot
+                    if (!nextMatch.team1_id) {
+                        nextMatch.team1_id = winnerId;
+                    } 
+                    // If Team 1 is already taken, this winner takes the Team 2 slot
+                    else if (!nextMatch.team2_id) {
+                        nextMatch.team2_id = winnerId;
+                    }
+
+                    // If BOTH teams are now ready in the next match, set it to "Pending Setup"
+                    if (nextMatch.team1_id && nextMatch.team2_id) {
+                        nextMatch.status = "Pending Setup";
+                    }
+
+                    await nextMatch.save();
+                }
+            }
+        }
+
+        // Finally, save the current match updates
+        await match.save();
+
+        res.json({ 
+            message: "Match completed and standings/bracket updated!", 
+            match 
+        });
+
+    } catch (error) {
+        console.error("MATCH COMPLETE ERROR:", error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+/* ===============================
+   ADMIN: TOGGLE LIVE STATUS
+================================ */
+app.put("/admin/matches/:id/toggle-live", async (req, res) => {
+  try {
+    const match = await Match.findByPk(req.params.id);
+    if (!match) return res.status(404).json({ error: "Match not found" });
+
+    // Swap between Live and Scheduled
+    match.is_live = !match.is_live;
+    match.status = match.is_live ? "Live" : "Scheduled";
+    await match.save();
+
+    res.json({ message: "Live status updated", match });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/* ===============================
+   ADMIN: UPDATE LIVE SCORE 
+================================ */
+app.put("/admin/matches/:id/update-score", async (req, res) => {
+  try {
+    const { team1_score, team2_score } = req.body;
+    const match = await Match.findByPk(req.params.id);
+    if (!match) return res.status(404).json({ error: "Match not found" });
+
+    match.team1_score = parseInt(team1_score) || 0;
+    match.team2_score = parseInt(team2_score) || 0;
+    await match.save();
+
+    res.json({ message: "Score updated", match });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+/* ===============================
+   ADMIN: EDIT USER (SMART ROUTE)
+================================ */
+app.put("/admin/users/:id", async (req, res) => {
+    try {
+        const { id } = req.params; // Example: "player-5" or "coach-2"
+        
+        // Split the ID to find out which table to update
+        const [rolePrefix, dbId] = id.split("-");
+
+        if (rolePrefix === "player") {
+            const player = await Player.findByPk(dbId);
+            if (!player) return res.status(404).json({ error: "Player not found" });
+            
+            await player.update({
+                full_name: req.body.name, // Players use full_name
+                phone: req.body.phone,
+                email: req.body.email,
+                status: req.body.status   // Only Players have status right now
+            });
+        } 
+        else if (rolePrefix === "coach") {
+            const manager = await Manager.findByPk(dbId);
+            if (!manager) return res.status(404).json({ error: "Manager not found" });
+            
+            await manager.update({
+                name: req.body.name,
+                phone: req.body.phone
+            });
+        } 
+        else if (rolePrefix === "admin") {
+            const admin = await Admin.findByPk(dbId);
+            if (!admin) return res.status(404).json({ error: "Admin not found" });
+            
+            await admin.update({
+                name: req.body.name,
+                phone: req.body.phone
+            });
+        } 
+        else {
+            return res.status(400).json({ error: "Invalid user role identifier" });
+        }
+
+        res.json({ message: "User updated successfully" });
+    } catch (error) {
+        console.error("EDIT USER ERROR:", error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+/* ===============================
+   ADMIN: DELETE USER (SMART ROUTE)
+================================ */
+app.delete("/admin/users/:id", async (req, res) => {
+    try {
+        const { id } = req.params;
+        const [rolePrefix, dbId] = id.split("-");
+
+        if (rolePrefix === "player") {
+            await Player.destroy({ where: { id: dbId } });
+        } else if (rolePrefix === "coach") {
+            await Manager.destroy({ where: { id: dbId } });
+        } else if (rolePrefix === "admin") {
+            await Admin.destroy({ where: { id: dbId } });
+        } else {
+            return res.status(400).json({ error: "Invalid user role identifier" });
+        }
+
+        res.json({ message: "User deleted successfully" });
+    } catch (error) {
+        console.error("DELETE USER ERROR:", error);
+        res.status(500).json({ error: error.message });
+    }
+});
 /* ===============================
    START SERVER
 ================================ */
@@ -686,10 +2567,11 @@ async function createFolder() {
   }
 }
 
-const PORT = process.env.PORT || 5000;
-
 sequelize.sync({}).then(() => {
-  app.listen(PORT, () => {
-    console.log(`Server running on port ${PORT}`);
+  // create drive folder
+
+  app.listen(5000, () => {
+    console.log("Server running on port 5000");
   });
+
 });
