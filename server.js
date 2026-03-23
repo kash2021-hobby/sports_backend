@@ -2580,8 +2580,11 @@ async function createFolder() {
 sequelize.sync({alter:true}).then(() => {
   // create drive folder
 
-  app.listen(5000, () => {
-    console.log("Server running on port 5000");
+ const PORT = process.env.PORT || 5000;
+  
+  // '0.0.0.0' is required by some cloud hosts to expose the server to the internet
+  app.listen(PORT, '0.0.0.0', () => {
+    console.log(`🚀 Server successfully running on port ${PORT}`);
   });
 
 });
