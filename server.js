@@ -12,7 +12,17 @@ const multer = require("multer");
 const stream = require("stream");
 
 const app = express();
-app.use(cors());
+app.use(cors({
+    origin: [
+        'https://version2.dhsa.co.in', // Your live frontend
+        'http://localhost:3000',       // Local React testing
+        'http://localhost:5173'        // Local Vite testing
+    ],
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization'],
+    credentials: true,
+    optionsSuccessStatus: 200 // Some legacy browsers choke on 204
+}));
 app.use(express.json());
 
 /* ===============================
