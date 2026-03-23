@@ -2567,7 +2567,7 @@ async function createFolder() {
   }
 }
 
-sequelize.sync({}).then(() => {
+sequelize.sync({alter:true}).then(() => {
   // create drive folder
 
   app.listen(5000, () => {
