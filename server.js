@@ -2717,11 +2717,14 @@ async function createFolder() {
   }
 }
 
-sequelize.sync({}).then(() => {
+sequelize.sync({ alter: true }).then(() => {
   // create drive folder
 
-  app.listen(5000, () => {
-    console.log("Server running on port 5000");
+  // 🌟 THE FIX: Listen to Railway's dynamic port!
+  const PORT = process.env.PORT || 5000;
+  
+  app.listen(PORT, '0.0.0.0', () => {
+    console.log(`🚀 Server successfully running on port ${PORT}`);
   });
 
 });
