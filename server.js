@@ -12,19 +12,7 @@ const multer = require("multer");
 const stream = require("stream");
 
 const app = express();
-// THIS MUST BE AT THE TOP!
-app.use(cors({
-    origin: [
-        'https://version2.dhsa.co.in',
-        'http://localhost:3000',
-        'http://localhost:5173'
-    ],
-    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization'],
-    credentials: true,
-    optionsSuccessStatus: 200 
-}));
-
+app.use(cors());
 app.use(express.json());
 
 /* ===============================
@@ -2304,32 +2292,56 @@ app.get("/manager/teams/:id/matches", async (req, res) => {
 ================================ */
 
 // 1. Get matches assigned to a specific referee (Include Teams & Players)
+// 1. Get matches assigned to a specific referee
 app.get("/referee/:id/matches", async (req, res) => {
     try {
         const refereeId = req.params.id;
         
+        // Handle "undefined" string coming from frontend
+        if (!refereeId || refereeId === "undefined" || refereeId === "null") {
+            return res.status(400).json({ error: "Valid Referee ID is required" });
+        }
+
         const matches = await Match.findAll({
             where: { referee_id: refereeId },
             include: [
                 { 
                     model: Team, as: 'Team1', 
-                    // 🌟 FIXED: Alias must be 'Players' (Capital P) to match your association
                     include: [{ model: Player, as: 'Players' }] 
                 },
                 { 
                     model: Team, as: 'Team2',
-                    // 🌟 FIXED: Alias must be 'Players' (Capital P) to match your association
                     include: [{ model: Player, as: 'Players' }] 
                 }
             ],
             order: [['createdAt', 'DESC']]
         });
         
-        res.json(matches);
+        // Always return an array, even if empty
+        res.json(matches || []);
     } catch (error) {
         console.error("REFEREE MATCHES ERROR:", error);
-        res.status(500).json({ error: error.message });
+        // Ensure we send JSON even on failure
+        res.status(500).json({ error: "Internal Server Error", details: error.message });
     }
+});
+/* ===============================
+   ADMIN/REFEREE: TOGGLE LIVE STATUS
+================================ */
+app.put("/referee/matches/:id/toggle-live", async (req, res) => {
+  try {
+    const match = await Match.findByPk(req.params.id);
+    if (!match) return res.status(404).json({ error: "Match not found" });
+
+    // Force the status to Live and boolean to true
+    match.is_live = true;
+    match.status = "Live";
+    
+    await match.save();
+    res.json({ message: "Match is now Live!", match });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
 });
 
 // 2. Submit Final Match Data & Save Events
@@ -2471,17 +2483,26 @@ app.put("/admin/matches/:id/toggle-live", async (req, res) => {
 /* ===============================
    ADMIN: UPDATE LIVE SCORE 
 ================================ */
+/* ===============================
+   ADMIN: UPDATE LIVE SCORE & EVENTS
+================================ */
 app.put("/admin/matches/:id/update-score", async (req, res) => {
   try {
-    const { team1_score, team2_score } = req.body;
+    const { team1_score, team2_score, match_events } = req.body;
     const match = await Match.findByPk(req.params.id);
+    
     if (!match) return res.status(404).json({ error: "Match not found" });
 
     match.team1_score = parseInt(team1_score) || 0;
     match.team2_score = parseInt(team2_score) || 0;
-    await match.save();
+    
+    // 🌟 THE FIX: Save the timeline events to the database instantly!
+    if (match_events) {
+        match.match_events = JSON.stringify(match_events);
+    }
 
-    res.json({ message: "Score updated", match });
+    await match.save();
+    res.json({ message: "Score and events updated", match });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -2699,6 +2720,65 @@ app.get("/players/:id/matches", async (req, res) => {
   }
 });
 /* ===============================
+   PUBLIC MATCH ROUTES (FOR FRONTEND)
+================================ */
+
+// Get ALL matches for the Home Page slider
+app.get("/matches", async (req, res) => {
+  try {
+    const matches = await Match.findAll({
+      include: [
+        { model: Team, as: 'Team1', attributes: ['name'] },
+        { model: Team, as: 'Team2', attributes: ['name'] },
+        { model: Tournament, attributes: ['name'] }
+      ],
+      order: [['match_date', 'DESC']]
+    });
+    
+    // We can use your existing MatchSerializer here
+    res.json(matches.map(MatchSerializer));
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Get a SINGLE match for the Match Details Page
+/* ===============================
+   PUBLIC MATCH DETAILS ROUTE
+================================ */
+app.get("/matches/:id", async (req, res) => {
+  try {
+    const match = await Match.findByPk(req.params.id, {
+      include: [
+        { model: Team, as: 'Team1', attributes: ['name'] },
+        { model: Team, as: 'Team2', attributes: ['name'] },
+        { model: Tournament, attributes: ['name'] },
+        // 🌟 FIXED: We are now explicitly asking the database for the Referee's data!
+        { model: Referee, as: 'MatchReferee', attributes: ['full_name'] } 
+      ]
+    });
+
+    if (!match) return res.status(404).json({ error: "Match not found" });
+
+    // Use your existing serializer
+    const serializedMatch = MatchSerializer(match);
+    
+    // Attach the parsed timeline events
+    serializedMatch.match_events = match.match_events ? JSON.parse(match.match_events) : [];
+    
+    // Attach the tournament name
+    serializedMatch.tournament_name = match.Tournament ? match.Tournament.name : 'Unknown Tournament';
+    
+    // 🌟 FIXED: Instead of hardcoding "Ref #1", we pull the actual name we requested above
+    serializedMatch.referee_name = match.MatchReferee ? match.MatchReferee.full_name : "TBD";
+
+    res.json(serializedMatch);
+  } catch (error) {
+    console.error("GET MATCH DETAILS ERROR:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
+/* ===============================
    START SERVER
 ================================ */
 async function createFolder() {
@@ -2717,14 +2797,11 @@ async function createFolder() {
   }
 }
 
-sequelize.sync({ alter: true }).then(() => {
+sequelize.sync({}).then(() => {
   // create drive folder
 
-  // 🌟 THE FIX: Listen to Railway's dynamic port!
-  const PORT = process.env.PORT || 5000;
-  
-  app.listen(PORT, '0.0.0.0', () => {
-    console.log(`🚀 Server successfully running on port ${PORT}`);
+  app.listen(5000, () => {
+    console.log("Server running on port 5000");
   });
 
 });
