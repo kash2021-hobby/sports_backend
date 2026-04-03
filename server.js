@@ -506,23 +506,29 @@ function MatchSerializer(match) {
   return {
     id: match.id,
     tournament_id: match.TournamentId,
+    tournament_name: match.Tournament ? match.Tournament.name : 'Unknown Tournament',
+    
     round_name: match.round_name,
     round_number: match.round_number,
     match_number: match.match_number,
     
     team1_id: match.team1_id,
-    // 🌟 PRIORITY: Actual Name > Database Placeholder > "TBD"
+    // 🌟 YOUR AWESOME LOGIC: Actual Name > Database Placeholder > "TBD"
     team1_name: match.Team1 ? match.Team1.name : (match.team1_placeholder || "TBD"),
     team1_placeholder: match.team1_placeholder,
     team1_jersey: match.team1_jersey,
     team1_score: match.team1_score,
+    // 🌟 RESTORED: The Club Logo for the UI
+    team1_logo: match.Team1 && match.Team1.Club ? match.Team1.Club.logo_url : null,
     
     team2_id: match.team2_id,
-    // 🌟 PRIORITY: Actual Name > Database Placeholder > "TBD"
+    // 🌟 YOUR AWESOME LOGIC: Actual Name > Database Placeholder > "TBD"
     team2_name: match.Team2 ? match.Team2.name : (match.team2_placeholder || "TBD"),
     team2_placeholder: match.team2_placeholder,
     team2_jersey: match.team2_jersey,
     team2_score: match.team2_score,
+    // 🌟 RESTORED: The Club Logo for the UI
+    team2_logo: match.Team2 && match.Team2.Club ? match.Team2.Club.logo_url : null,
     
     match_date: match.match_date,
     match_time: match.match_time,
@@ -530,12 +536,18 @@ function MatchSerializer(match) {
 
     winner_id: match.winner_id,
     next_match_id: match.next_match_id,
+    
     referee_id: match.referee_id,
+    // 🌟 RESTORED: Prevents the "Ref #1" bug!
+    referee_name: match.MatchReferee ? match.MatchReferee.full_name : "TBD",
+    
     is_live: match.is_live,
-    status: match.status
+    status: match.status,
+    
+    // 🌟 RESTORED: Needed for the Live Timeline to work!
+    match_events: match.match_events ? JSON.parse(match.match_events) : []
   };
 }
-
 /* ===============================
    TOURNAMENT REGISTRATION SERIALIZER
 ================================ */
@@ -2351,6 +2363,9 @@ app.put("/referee/matches/:id/toggle-live", async (req, res) => {
 /* ===============================
    REFEREE: COMPLETE MATCH & ADVANCE WINNER
 ================================ */
+/* ===============================
+   REFEREE: COMPLETE MATCH & ADVANCE WINNER
+================================ */
 app.put("/referee/matches/:id/complete", async (req, res) => {
     try {
         const { team1_score, team2_score, match_events } = req.body;
@@ -2366,6 +2381,10 @@ app.put("/referee/matches/:id/complete", async (req, res) => {
         match.team1_score = s1_score;
         match.team2_score = s2_score;
         match.status = 'Completed';
+        
+        // 🌟 THE FIX: Turn off the live broadcasting switch!
+        match.is_live = false; 
+        
         match.match_events = match_events;
         
         // --- LEAGUE OR GROUP STAGE MATH ---
@@ -2724,20 +2743,39 @@ app.get("/players/:id/matches", async (req, res) => {
 ================================ */
 
 // Get ALL matches for the Home Page slider
+/* ===============================
+   PUBLIC MATCH ROUTES (FOR FRONTEND)
+================================ */
 app.get("/matches", async (req, res) => {
   try {
     const matches = await Match.findAll({
       include: [
-        { model: Team, as: 'Team1', attributes: ['name'] },
-        { model: Team, as: 'Team2', attributes: ['name'] },
-        { model: Tournament, attributes: ['name'] }
+        { 
+          model: Team, 
+          as: 'Team1', 
+          attributes: ['name'],
+          // 🌟 THIS IS THE FIX: Fetch the logo from the connected Club
+          include: [{ model: Club, attributes: ['logo_url'] }] 
+        },
+        { 
+          model: Team, 
+          as: 'Team2', 
+          attributes: ['name'],
+          // 🌟 THIS IS THE FIX: Fetch the logo from the connected Club
+          include: [{ model: Club, attributes: ['logo_url'] }] 
+        },
+        { 
+          model: Tournament, 
+          attributes: ['name'] 
+        }
       ],
       order: [['match_date', 'DESC']]
     });
     
-    // We can use your existing MatchSerializer here
+    // We use the MatchSerializer to format this data perfectly for the frontend
     res.json(matches.map(MatchSerializer));
   } catch (error) {
+    console.error("GET MATCHES ERROR:", error);
     res.status(500).json({ error: error.message });
   }
 });
@@ -2800,7 +2838,7 @@ async function createFolder() {
 sequelize.sync({}).then(() => {
   // create drive folder
 
- const PORT = process.env.PORT || 8080;
+  const PORT = process.env.PORT || 8080;
   
   app.listen(PORT, '0.0.0.0', () => {
     console.log(`Server running on port ${PORT}`);
