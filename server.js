@@ -134,8 +134,6 @@ const Player = sequelize.define("Player", {
   gov_doc_2_url: DataTypes.STRING,
   gov_doc_3_url: DataTypes.STRING,
   fitness_certificate_url: DataTypes.STRING,
-  noc_document_url: DataTypes.STRING
-
 });
 
 const Club = sequelize.define("Club", {
@@ -326,6 +324,25 @@ const Referee = sequelize.define("Referee", {
     defaultValue: "Active" // Active / Inactive
   }
 });
+const TransferHistory = sequelize.define("TransferHistory", {
+  noc_document_url: DataTypes.STRING,
+  transfer_date: {
+    type: DataTypes.DATE,
+    defaultValue: Sequelize.NOW
+  }
+  // Note: player_id, from_club_id, and to_club_id will be added by relationships below
+});
+
+// --- TRANSFER HISTORY RELATIONSHIPS ---
+Player.hasMany(TransferHistory, { foreignKey: 'player_id' });
+TransferHistory.belongsTo(Player, { foreignKey: 'player_id' });
+
+// We use 'as' aliases because Club connects to TransferHistory twice (From and To)
+Club.hasMany(TransferHistory, { foreignKey: 'from_club_id', as: 'OutgoingTransfers' });
+TransferHistory.belongsTo(Club, { foreignKey: 'from_club_id', as: 'FromClub' });
+
+Club.hasMany(TransferHistory, { foreignKey: 'to_club_id', as: 'IncomingTransfers' });
+TransferHistory.belongsTo(Club, { foreignKey: 'to_club_id', as: 'ToClub' });
 
 // Link Referee to Matches
 Referee.hasMany(Match, { foreignKey: 'referee_id' });
@@ -428,6 +445,26 @@ function PlayerSerializer(player) {
       player.status === "Registered"
         ? "Approved Player"
         : "Pending Approval",
+  };
+}
+function TransferHistorySerializer(history) {
+  return {
+    id: history.id,
+    transfer_date: history.transfer_date,
+    noc_document_url: history.noc_document_url,
+    
+    // Player Details (Safely checking if data exists to avoid crashes)
+    player_id: history.player_id,
+    player_name: history.Player ? history.Player.full_name : "Unknown Player",
+    player_photo: history.Player ? history.Player.player_photo_url : null,
+    
+    // Previous Club Details
+    from_club_id: history.from_club_id,
+    from_club: history.FromClub ? history.FromClub.name : "Independent / New",
+    
+    // New Club Details
+    to_club_id: history.to_club_id,
+    to_club: history.ToClub ? history.ToClub.name : "Unknown Club"
   };
 }
 
@@ -774,6 +811,9 @@ app.post("/manager/tournaments/register", upload.single("receipt_file"), async (
 /* ===============================
    ADMIN: TRANSFER PLAYER
 ================================ */
+/* ===============================
+   ADMIN: TRANSFER PLAYER (UPDATED FOR HISTORY TABLE)
+================================ */
 app.post("/admin/transfer-player", upload.single("noc_document"), async (req, res) => {
   try {
     const { player_id, new_club_id } = req.body;
@@ -788,16 +828,22 @@ app.post("/admin/transfer-player", upload.single("noc_document"), async (req, re
     // 1. Upload the NOC document to Google Drive
     const nocUrl = await uploadToGoogleDrive(req.file);
 
-    // Save the old club id so we can remove them from that team's roster
+    // Save the old club id so we can log it
     const oldClubId = player.club_applied;
 
-    // 2. Update player's club and save the NOC document URL
-    await player.update({
-      club_applied: new_club_id,
-      noc_document_url: nocUrl
+    // 2. 🌟 NEW: Create the Transfer History Record!
+    await TransferHistory.create({
+        player_id: player.id,
+        from_club_id: oldClubId || null, // Might be null if they were independent
+        to_club_id: new_club_id,
+        noc_document_url: nocUrl
     });
 
-    // 3. Remove them from their OLD permanent team
+    // 3. Update player's current club 
+    // (Notice we are no longer saving the NOC URL here!)
+    await player.update({ club_applied: new_club_id });
+
+    // 4. Remove them from their OLD permanent team
     if (oldClubId) {
        const oldTeam = await Team.findOne({ where: { club_id: oldClubId } });
        if (oldTeam) {
@@ -805,10 +851,9 @@ app.post("/admin/transfer-player", upload.single("noc_document"), async (req, re
        }
     }
 
-    // 4. Automatically add them to the NEW club's permanent team (if it exists)
+    // 5. Automatically add them to the NEW club's permanent team (if it exists)
     const newTeam = await Team.findOne({ where: { club_id: new_club_id } });
     if (newTeam) {
-        // Find highest jersey number to avoid conflicts
         const currentMax = await TeamPlayer.max('jersey_number', { where: { team_id: newTeam.id } });
         const nextJersey = (currentMax || 0) + 1;
 
@@ -821,13 +866,44 @@ app.post("/admin/transfer-player", upload.single("noc_document"), async (req, re
         });
     }
 
-    res.json({ message: "Player successfully transferred to the new club!", noc_url: nocUrl });
+    res.json({ message: "Player successfully transferred to the new club and history logged!", noc_url: nocUrl });
   } catch (error) {
     console.error("TRANSFER ERROR:", error);
     res.status(500).json({ error: error.message });
   }
 });
 
+/* ===============================
+   ADMIN: GET ALL TRANSFER HISTORY
+================================ */
+app.get("/admin/transfer-history", async (req, res) => {
+    try {
+        const history = await TransferHistory.findAll({
+            include: [
+                { model: Player, attributes: ['id', 'full_name', 'player_photo_url'] },
+                { model: Club, as: 'FromClub', attributes: ['name'] },
+                { model: Club, as: 'ToClub', attributes: ['name'] }
+            ],
+            order: [['transfer_date', 'DESC']]
+        });
+        
+        // Map data to be clean for the frontend
+        const formattedHistory = history.map(record => ({
+            id: record.id,
+            transfer_date: record.transfer_date,
+            noc_document_url: record.noc_document_url,
+            player_name: record.Player ? record.Player.full_name : "Unknown Player",
+            player_photo: record.Player ? record.Player.player_photo_url : null,
+            from_club: record.FromClub ? record.FromClub.name : "Independent / New",
+            to_club: record.ToClub ? record.ToClub.name : "Unknown Club"
+        }));
+
+        res.json(formattedHistory);
+    } catch (error) {
+        console.error("FETCH TRANSFER HISTORY ERROR:", error);
+        res.status(500).json({ error: error.message });
+    }
+});
 // GET all matches for a specific tournament
 app.get("/admin/tournaments/:id/matches", async (req, res) => {
   try {
