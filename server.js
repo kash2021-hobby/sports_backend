@@ -134,6 +134,7 @@ const Player = sequelize.define("Player", {
   gov_doc_2_url: DataTypes.STRING,
   gov_doc_3_url: DataTypes.STRING,
   fitness_certificate_url: DataTypes.STRING,
+   aadhaar_verified_url: DataTypes.STRING
 });
 
 const Club = sequelize.define("Club", {
@@ -808,6 +809,57 @@ app.post("/manager/tournaments/register", upload.single("receipt_file"), async (
     res.status(500).json({ error: error.message });
   }
 });
+
+/* ===============================
+   ADMIN: UPDATE STATUS & VERIFY AADHAAR
+================================ */
+
+app.post("/admin/update-status", upload.single("aadhaar_screenshot"), async (req, res) => {
+  const { player_id, status } = req.body;
+
+  try {
+    const player = await Player.findByPk(player_id);
+    if (!player) {
+      return res.status(404).json({ error: "Player not found" });
+    }
+
+    // 🌟 1. UPLOAD AADHAAR SCREENSHOT TO GOOGLE DRIVE
+    let aadhaarUrl = player.aadhaar_verified_url; // Keep existing if there is one
+    if (req.file) {
+        aadhaarUrl = await uploadToGoogleDrive(req.file);
+    }
+
+    // 🌟 2. UPDATE DATABASE
+    player.status = status;
+    player.aadhaar_verified_url = aadhaarUrl;
+    await player.save();
+
+    // 🌟 3. AUTOMATION: Auto-add to permanent team if status is set to "Registered"
+    if (status === "Registered" && player.club_applied) {
+        const team = await Team.findOne({ where: { club_id: player.club_applied } });
+        
+        if (team) {
+            // Find highest jersey number to avoid conflicts
+            const currentMax = await TeamPlayer.max('jersey_number', { where: { team_id: team.id } });
+            const nextJersey = (currentMax || 0) + 1;
+
+            await TeamPlayer.findOrCreate({
+                where: { team_id: team.id, player_id: player.id },
+                defaults: {
+                    jersey_number: nextJersey,
+                    assigned_position: player.position || "Reserve"
+                }
+            });
+        }
+    }
+
+    res.json({ message: "Player status updated successfully" });
+  } catch (error) {
+    console.error("UPDATE STATUS ERROR:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 /* ===============================
    ADMIN: TRANSFER PLAYER
 ================================ */
