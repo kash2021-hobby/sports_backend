@@ -1589,6 +1589,35 @@ app.post("/manager/setup-club-with-drive", upload.single("club_logo"), async (re
 /* ===============================
    PLAYER PROFILE (WITH FILE UPLOAD)
 ================================ */
+/* ===============================
+   DOCUMENT DUPLICATE CHECK
+================================ */
+app.get("/players/check-document", async (req, res) => {
+  try {
+    const { field, value } = req.query;
+
+    if (!field || !value) {
+      return res.status(400).json({ error: "Missing field or value" });
+    }
+
+    // Dynamically check either aadhaar_number or pan_number
+    const query = {};
+    query[field] = value;
+
+    const existingPlayer = await Player.findOne({ where: query });
+
+    if (existingPlayer) {
+      return res.json({ exists: true });
+    }
+
+    res.json({ exists: false });
+
+  } catch (error) {
+    console.error("CHECK DOCUMENT ERROR:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 
 app.post(
   "/players/profile",
