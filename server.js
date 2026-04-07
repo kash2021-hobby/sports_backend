@@ -1594,14 +1594,15 @@ app.post(
   "/players/profile",
   upload.fields([
     { name: "player_photo", maxCount: 1 },
-    { name: "gov_doc_1", maxCount: 1 },    // 🌟 New: Matches frontend name
-    { name: "gov_doc_2", maxCount: 1 },    // 🌟 New: Matches frontend name
-    { name: "gov_doc_3", maxCount: 1 },    // 🌟 New: Matches frontend name
+    { name: "gov_doc_1", maxCount: 1 },
+    { name: "gov_doc_2", maxCount: 1 },
+    { name: "gov_doc_3", maxCount: 1 },
     { name: "fitness_certificate", maxCount: 1 }
   ]),
   async (req, res) => {
     try {
-      const { id } = req.body;
+      // 🌟 1. Extract Aadhaar and PAN along with the ID
+      const { id, aadhaar_number, pan_number } = req.body;
 
       if (!id) {
         return res.status(400).json({ error: "Player ID required" });
@@ -1611,6 +1612,35 @@ app.post(
 
       if (!player) {
         return res.status(404).json({ error: "Player not found" });
+      }
+
+      /* ===============================
+         🌟 STRICT BACKEND DUPLICATE CHECK 🌟
+      ================================ */
+      // Check if Aadhaar is already used by ANOTHER player
+      if (aadhaar_number) {
+        const existingAadhaar = await Player.findOne({
+          where: {
+            aadhaar_number: aadhaar_number,
+            id: { [Sequelize.Op.ne]: id } // Ignore their own current record
+          }
+        });
+        if (existingAadhaar) {
+          return res.status(400).json({ error: "This Aadhaar number is already registered to another player." });
+        }
+      }
+
+      // Check if PAN is already used by ANOTHER player
+      if (pan_number) {
+        const existingPan = await Player.findOne({
+          where: {
+            pan_number: pan_number,
+            id: { [Sequelize.Op.ne]: id } // Ignore their own current record
+          }
+        });
+        if (existingPan) {
+          return res.status(400).json({ error: "This PAN number is already registered to another player." });
+        }
       }
 
       /* ===============================
@@ -1657,7 +1687,7 @@ app.post(
         blood_group: req.body.blood_group,
 
         aadhaar_number: req.body.aadhaar_number,
-         pan_number: req.body.pan_number,
+        pan_number: req.body.pan_number,
 
         position: req.body.position,
         strong_foot: req.body.strong_foot,
