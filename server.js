@@ -134,7 +134,8 @@ const Player = sequelize.define("Player", {
   gov_doc_2_url: DataTypes.STRING,
   gov_doc_3_url: DataTypes.STRING,
   fitness_certificate_url: DataTypes.STRING,
-   aadhaar_verified_url: DataTypes.STRING
+  aadhaar_verified_url: DataTypes.STRING,
+  pan_number: DataTypes.STRING
 });
 
 const Club = sequelize.define("Club", {
@@ -1656,6 +1657,7 @@ app.post(
         blood_group: req.body.blood_group,
 
         aadhaar_number: req.body.aadhaar_number,
+         pan_number: req.body.pan_number,
 
         position: req.body.position,
         strong_foot: req.body.strong_foot,
