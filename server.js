@@ -3062,6 +3062,112 @@ app.get("/matches/:id", async (req, res) => {
     res.status(500).json({ error: error.message });
   }
 });
+// 3. Edit an Existing Team
+app.put("/manager/team/:id", async (req, res) => {
+  const { name, jersey_color, roster } = req.body;
+  
+  try {
+    const team = await Team.findByPk(req.params.id);
+    if (!team) return res.status(404).json({ error: "Team not found" });
+
+    // 1. Update basic details and reset status to pending (because roster changed)
+    await team.update({ 
+        name, 
+        jersey_color, 
+        status: "Pending Approval" 
+    });
+
+    // 2. Wipe the old roster completely
+    await TeamPlayer.destroy({ where: { team_id: team.id } });
+
+    // 3. Insert the newly updated roster
+    for (const [playerId, details] of Object.entries(roster)) {
+      await TeamPlayer.create({
+        team_id: team.id,
+        player_id: playerId,
+        jersey_number: details.jerseyNumber,
+        assigned_position: details.assignedPosition
+      });
+    }
+
+    res.json({ message: "Team updated and sent for re-approval successfully", team });
+  } catch (error) {
+    console.error("TEAM EDIT ERROR:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// 4. Delete an Existing Team
+app.delete("/manager/team/:id", async (req, res) => {
+  try {
+    const team = await Team.findByPk(req.params.id);
+    if (!team) return res.status(404).json({ error: "Team not found" });
+
+    // Delete the team (and because of associations, it safely removes the roster mapping too)
+    await team.destroy();
+    
+    // Just to be 100% clean, let's explicitly wipe the TeamPlayer entries
+    await TeamPlayer.destroy({ where: { team_id: req.params.id } });
+
+    res.json({ message: "Team completely deleted." });
+  } catch (error) {
+    console.error("TEAM DELETE ERROR:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
+// 3. Edit an Existing Team
+app.put("/manager/team/:id", async (req, res) => {
+  const { name, jersey_color, roster } = req.body;
+  
+  try {
+    const team = await Team.findByPk(req.params.id);
+    if (!team) return res.status(404).json({ error: "Team not found" });
+
+    // 1. Update basic details and reset status to pending (because roster changed)
+    await team.update({ 
+        name, 
+        jersey_color, 
+        status: "Pending Approval" 
+    });
+
+    // 2. Wipe the old roster completely
+    await TeamPlayer.destroy({ where: { team_id: team.id } });
+
+    // 3. Insert the newly updated roster
+    for (const [playerId, details] of Object.entries(roster)) {
+      await TeamPlayer.create({
+        team_id: team.id,
+        player_id: playerId,
+        jersey_number: details.jerseyNumber,
+        assigned_position: details.assignedPosition
+      });
+    }
+
+    res.json({ message: "Team updated and sent for re-approval successfully", team });
+  } catch (error) {
+    console.error("TEAM EDIT ERROR:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// 4. Delete an Existing Team
+app.delete("/manager/team/:id", async (req, res) => {
+  try {
+    const team = await Team.findByPk(req.params.id);
+    if (!team) return res.status(404).json({ error: "Team not found" });
+
+    // Delete the team (and because of associations, it safely removes the roster mapping too)
+    await team.destroy();
+    
+    // Just to be 100% clean, let's explicitly wipe the TeamPlayer entries
+    await TeamPlayer.destroy({ where: { team_id: req.params.id } });
+
+    res.json({ message: "Team completely deleted." });
+  } catch (error) {
+    console.error("TEAM DELETE ERROR:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
 /* ===============================
    START SERVER
 ================================ */
