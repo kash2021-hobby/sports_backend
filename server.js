@@ -933,7 +933,8 @@ app.get("/admin/transfer-history", async (req, res) => {
     try {
         const history = await TransferHistory.findAll({
             include: [
-                { model: Player, attributes: ['id', 'full_name', 'player_photo_url'] },
+                // 🌟 UPDATE 1: Add 'phone' to this list of attributes!
+                { model: Player, attributes: ['id', 'full_name', 'player_photo_url', 'phone'] }, 
                 { model: Club, as: 'FromClub', attributes: ['name'] },
                 { model: Club, as: 'ToClub', attributes: ['name'] }
             ],
@@ -947,6 +948,10 @@ app.get("/admin/transfer-history", async (req, res) => {
             noc_document_url: record.noc_document_url,
             player_name: record.Player ? record.Player.full_name : "Unknown Player",
             player_photo: record.Player ? record.Player.player_photo_url : null,
+            
+            // 🌟 UPDATE 2: Grab the phone number from the database record!
+            player_phone: record.Player ? record.Player.phone : "N/A",
+
             from_club: record.FromClub ? record.FromClub.name : "Independent / New",
             to_club: record.ToClub ? record.ToClub.name : "Unknown Club"
         }));
