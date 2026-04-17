@@ -533,7 +533,8 @@ function TournamentSerializer(tournament) {
     registration_mode: tournament.registration_mode || [],
     qr_code_url: tournament.qr_code_url,
     upi_id: tournament.upi_id,
-    registered_teams_count: tournament.Teams ? tournament.Teams.length : 0
+    // 🌟 THE FIX: Map the count from TournamentRegistrations instead of Teams
+    registered_teams_count: tournament.TournamentRegistrations ? tournament.TournamentRegistrations.length : 0
   };
 }
 /* ===============================
@@ -734,7 +735,12 @@ app.post("/admin/tournaments", upload.fields([
 app.get("/tournaments", async (req, res) => {
   try {
     const tournaments = await Tournament.findAll({
-      include: [{ model: Team, attributes: ['id'] }], // To count registered teams
+      // 🌟 THE FIX: Only count APPROVED registrations!
+      include: [{ 
+          model: TournamentRegistration, 
+          where: { status: 'Approved' },
+          required: false // 'false' ensures tournaments with 0 teams still load
+      }], 
       order: [['createdAt', 'DESC']]
     });
     
