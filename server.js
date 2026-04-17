@@ -2059,12 +2059,18 @@ app.get("/admin/users", async (req, res) => {
 /* ===============================
    DASHBOARD STATISTICS ROUTE
 ================================ */
+/* ===============================
+   DASHBOARD STATISTICS ROUTE
+================================ */
 app.get("/admin/dashboard-stats", async (req, res) => {
   try {
-    const [totalPlayers, pendingApps, totalCoaches] = await Promise.all([
+    // 🌟 1. Added 'pendingTeams' to the Promise array
+    const [totalPlayers, pendingApps, totalCoaches, pendingTeams] = await Promise.all([
       Player.count(),
       Player.count({ where: { status: 'Recommended' } }),
-      Manager.count()
+      Manager.count(),
+      // 🌟 2. Count teams waiting for Admin Approval
+      Team.count({ where: { status: 'Pending Approval' } }) 
     ]);
 
     const recentApplications = await Player.findAll({
@@ -2079,7 +2085,9 @@ app.get("/admin/dashboard-stats", async (req, res) => {
         totalPlayers,
         pendingApps,
         activeCoaches: totalCoaches,
-        activeTeams: 0 // Placeholder as requested
+        // 🌟 3. Send the actual count to the frontend!
+        pendingTeams, 
+        unreadNotifications: 0 
       },
       recentApplications
     });
@@ -2087,7 +2095,6 @@ app.get("/admin/dashboard-stats", async (req, res) => {
     res.status(500).json({ error: error.message });
   }
 });
-
 // 3. Update a Coach (Edit)
 app.put("/admin/coaches/:id", async (req, res) => {
   try {
