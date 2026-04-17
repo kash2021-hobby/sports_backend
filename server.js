@@ -3035,14 +3035,17 @@ app.get("/matches", async (req, res) => {
 /* ===============================
    PUBLIC MATCH DETAILS ROUTE
 ================================ */
+/* ===============================
+   PUBLIC MATCH DETAILS ROUTE
+================================ */
 app.get("/matches/:id", async (req, res) => {
   try {
     const match = await Match.findByPk(req.params.id, {
+      // 🌟 THE FIX: The 'include' array belongs INSIDE this object!
       include: [
         { model: Team, as: 'Team1', attributes: ['name'] },
         { model: Team, as: 'Team2', attributes: ['name'] },
         { model: Tournament, attributes: ['name'] },
-        // 🌟 FIXED: We are now explicitly asking the database for the Referee's data!
         { model: Referee, as: 'MatchReferee', attributes: ['full_name'] } 
       ]
     });
@@ -3058,7 +3061,7 @@ app.get("/matches/:id", async (req, res) => {
     // Attach the tournament name
     serializedMatch.tournament_name = match.Tournament ? match.Tournament.name : 'Unknown Tournament';
     
-    // 🌟 FIXED: Instead of hardcoding "Ref #1", we pull the actual name we requested above
+    // Attach Referee Name
     serializedMatch.referee_name = match.MatchReferee ? match.MatchReferee.full_name : "TBD";
 
     res.json(serializedMatch);
