@@ -3051,13 +3051,27 @@ app.get("/matches", async (req, res) => {
 /* ===============================
    PUBLIC MATCH DETAILS ROUTE
 ================================ */
+/* ===============================
+   PUBLIC MATCH DETAILS ROUTE
+================================ */
 app.get("/matches/:id", async (req, res) => {
   try {
     const match = await Match.findByPk(req.params.id, {
-      // 🌟 THE FIX: The 'include' array belongs INSIDE this object!
       include: [
-        { model: Team, as: 'Team1', attributes: ['name'] },
-        { model: Team, as: 'Team2', attributes: ['name'] },
+        { 
+          model: Team, 
+          as: 'Team1', 
+          attributes: ['name'],
+          // 🌟 ADDED: Fetch the Club to get the logo for Team 1
+          include: [{ model: Club, attributes: ['logo_url'] }] 
+        },
+        { 
+          model: Team, 
+          as: 'Team2', 
+          attributes: ['name'],
+          // 🌟 ADDED: Fetch the Club to get the logo for Team 2
+          include: [{ model: Club, attributes: ['logo_url'] }] 
+        },
         { model: Tournament, attributes: ['name'] },
         { model: Referee, as: 'MatchReferee', attributes: ['full_name'] } 
       ]
