@@ -1776,11 +1776,20 @@ app.post(
 /* ===============================
    GET PLAYER PROFILE (WITH CLUB NAME)
 ================================ */
+/* ===============================
+   GET PLAYER PROFILE (WITH CLUB NAME & TEAM INFO)
+================================ */
 app.get("/players/profile/:id", async (req, res) => {
   try {
-    // 🌟 THE FIX: We added "include" to fetch the linked Club Name!
     const player = await Player.findByPk(req.params.id, {
-        include: [{ model: Club, attributes: ['name'] }]
+        include: [
+            { model: Club, attributes: ['name'] },
+            // 🌟 THE FIX: Include the Team to get the jersey number!
+            { 
+                model: Team, 
+                through: { attributes: ['jersey_number', 'assigned_position'] } 
+            }
+        ]
     });
 
     if (!player) {
@@ -1789,6 +1798,7 @@ app.get("/players/profile/:id", async (req, res) => {
 
     res.json(player);
   } catch (error) {
+    console.error("GET PROFILE ERROR:", error);
     res.status(500).json({ error: error.message });
   }
 });
