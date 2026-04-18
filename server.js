@@ -2072,15 +2072,22 @@ app.get("/admin/users", async (req, res) => {
 /* ===============================
    DASHBOARD STATISTICS ROUTE
 ================================ */
+/* ===============================
+   DASHBOARD STATISTICS ROUTE
+================================ */
 app.get("/admin/dashboard-stats", async (req, res) => {
   try {
-    // 🌟 1. Added 'pendingTeams' to the Promise array
-    const [totalPlayers, pendingApps, totalCoaches, pendingTeams] = await Promise.all([
+    const [totalPlayers, pendingApps, totalCoaches, pendingTeams, pendingTransfers, pendingTourneyRegs] = await Promise.all([
       Player.count(),
       Player.count({ where: { status: 'Recommended' } }),
       Manager.count(),
-      // 🌟 2. Count teams waiting for Admin Approval
-      Team.count({ where: { status: 'Pending Approval' } }) 
+      Team.count({ where: { status: 'Pending Approval' } }),
+      
+      // 🌟 NEW: Count Transfer History Logs
+      TransferHistory.count(), 
+      
+      // 🌟 NEW: Count Pending Tournament Registrations
+      TournamentRegistration.count({ where: { status: 'Pending Verification' } })
     ]);
 
     const recentApplications = await Player.findAll({
@@ -2095,9 +2102,9 @@ app.get("/admin/dashboard-stats", async (req, res) => {
         totalPlayers,
         pendingApps,
         activeCoaches: totalCoaches,
-        // 🌟 3. Send the actual count to the frontend!
-        pendingTeams, 
-        unreadNotifications: 0 
+        pendingTeams,
+        pendingTransfers,     // 🌟 Send transfer count to frontend
+        pendingTourneyRegs    // 🌟 Send tournament registration count to frontend
       },
       recentApplications
     });
