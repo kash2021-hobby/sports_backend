@@ -660,15 +660,62 @@ function RefereeSerializer(referee) {
    AUTH ROUTES
 ================================ */
 
-app.post("/auth/send-otp", (req, res) => {
-  res.json({ message: "OTP sent (use 52050)" });
+/* Replace existing /auth/send-otp */
+app.post("/auth/send-otp", async (req, res) => {
+  const { phone } = req.body;
+  
+  // 1. Generate a random 5-digit OTP
+  const otp = Math.floor(10000 + Math.random() * 90000).toString();
+
+  // 2. Save it in memory, set to expire in 5 minutes
+  otpStore[phone] = {
+    otp: otp,
+    expiresAt: Date.now() + 5 * 60 * 1000 
+  };
+
+  // 3. Ensure the phone number starts with country code (+91 for India)
+  let formattedPhone = phone;
+  if (!formattedPhone.startsWith("+")) {
+    formattedPhone = `+91${phone}`; 
+  }
+
+  // 4. Send the SMS via Twilio
+  try {
+    await twilioClient.messages.create({
+      body: `Your DHSA Login OTP is: ${otp}. It is valid for 5 minutes.`,
+      from: process.env.TWILIO_PHONE_NUMBER,
+      to: formattedPhone
+    });
+
+    console.log(`Sent real OTP ${otp} to ${formattedPhone}`);
+    res.json({ message: "OTP sent successfully via SMS!" });
+  } catch (error) {
+    console.error("TWILIO SEND ERROR:", error);
+    res.status(500).json({ error: "Failed to send SMS. Check Twilio credentials." });
+  }
 });
 
+/* Replace existing /auth/verify-otp */
 app.post("/auth/verify-otp", (req, res) => {
-  const { otp } = req.body;
+  const { phone, otp } = req.body;
+  
+  const record = otpStore[phone];
 
-  if (otp === "52050") {
-    return res.json({ message: "OTP verified" });
+  // 1. Check if an OTP was ever sent
+  if (!record) {
+    return res.status(400).json({ error: "No OTP found. Please request a new one." });
+  }
+
+  // 2. Check if the OTP expired
+  if (Date.now() > record.expiresAt) {
+    delete otpStore[phone]; // Clean up expired OTP
+    return res.status(400).json({ error: "OTP has expired. Please request a new one." });
+  }
+
+  // 3. Verify the actual number
+  if (record.otp === otp) {
+    delete otpStore[phone]; // Clean up used OTP
+    return res.json({ message: "OTP verified successfully!" });
   }
 
   res.status(401).json({ error: "Invalid OTP" });
