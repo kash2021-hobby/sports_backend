@@ -3,7 +3,7 @@ require("dotenv").config();
 const express = require("express");
 const cors = require("cors");
 const { Sequelize, DataTypes } = require("sequelize");
-
+const twilio = require("twilio");
 /* ===============================
    NEW IMPORTS (GOOGLE DRIVE)
 ================================ */
@@ -38,11 +38,12 @@ const oauth2Client = new google.auth.OAuth2(
 oauth2Client.setCredentials({
   refresh_token: process.env.GOOGLE_DRIVE_REFRESH_TOKEN,
 });
-
+const twilioClient = twilio(process.env.TWILIO_ACCOUNT_SID, process.env.TWILIO_AUTH_TOKEN);
 const drive = google.drive({
   version: "v3",
   auth: oauth2Client,
 });
+const otpStore = {};
 
 async function uploadToGoogleDrive(file) {
 
