@@ -1927,27 +1927,31 @@ app.get("/clubs/applications", async (req, res) => {
    ADMIN ROUTES
 ================================ */
 
+/* ===============================
+   ADMIN ROUTES
+================================ */
 app.get("/admin/pending-players", async (req, res) => {
 
   const players = await Player.findAll({
-
     where: { status: "Recommended" },
-
     include: [
       {
         model: Trial,
         attributes: [
           "trial_date", "venue", "pace", "passing", "shooting", "stamina",
-          "medical_notes", // <-- ONLY ask for medical_notes here
+          "medical_notes", 
           "recommendation", "checklist_answers", "trial_photo_url" 
         ]
+      },
+      // 🌟 THE FIX: Include the Club model so the frontend receives the name and logo!
+      {
+        model: Club,
+        attributes: ['name', 'logo_url']
       }
     ]
-
   });
 
   res.json(players);
-
 });
 app.post("/admin/update-status", async (req, res) => {
   const { player_id, status } = req.body;
